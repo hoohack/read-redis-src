@@ -413,6 +413,10 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/*
+ * 追加制定长度的字符串t(二进制安全)到s
+ * 对于C类型字符串而言，参数len是strlen，sds字符串len是sdslen
+*/
 sds sdscatlen(sds s, const void *t, size_t len) {
     size_t curlen = sdslen(s);
 
@@ -442,7 +446,11 @@ sds sdscatsds(sds s, const sds t) {
 
 /* Destructively modify the sds string 's' to hold the specified binary
  * safe string pointed by 't' of length 'len' bytes. */
+/*
+* 拷贝字符串t到sds字符串s，原字符串s已被销毁
+*/
 sds sdscpylen(sds s, const char *t, size_t len) {
+    /* 如果长度不够，则分配一下空余空间 */
     if (sdsalloc(s) < len) {
         s = sdsMakeRoomFor(s,len-sdslen(s));
         if (s == NULL) return NULL;
@@ -465,6 +473,11 @@ sds sdscpy(sds s, const char *t) {
  *
  * The function returns the length of the null-terminated string
  * representation stored at 's'. */
+/*
+* sdscatlonglong的辅助函数
+* 将数组转为字符串
+* 函数通过取余数方法得到原的字符串逆转形式，然后将字符串反转得到结果
+*/
 #define SDS_LLSTR_SIZE 21
 int sdsll2str(char *s, long long value) {
     char *p, aux;
@@ -473,6 +486,7 @@ int sdsll2str(char *s, long long value) {
 
     /* Generate the string representation, this method produces
      * an reversed string. */
+    /* 通过取余数得到原字符串的逆转形式 */
     v = (value < 0) ? -value : value;
     p = s;
     do {
@@ -486,6 +500,7 @@ int sdsll2str(char *s, long long value) {
     *p = '\0';
 
     /* Reverse the string. */
+    /* 反转字符串 */
     p--;
     while(s < p) {
         aux = *s;
@@ -498,6 +513,7 @@ int sdsll2str(char *s, long long value) {
 }
 
 /* Identical sdsll2str(), but for unsigned long long type. */
+/* unsigned long long 类型的数字->字符串转换，少了对负数的处理 */
 int sdsull2str(char *s, unsigned long long v) {
     char *p, aux;
     size_t l;
