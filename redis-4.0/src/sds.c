@@ -570,13 +570,15 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
 
     /* Try with buffers two times bigger every time we fail to
      * fit the string in the current buffer size. */
+    /*
+    * 每一次尝试将格式化结果输出到buf中，如果buf装不下，就将buf的大小翻倍，再次尝试 */
     while(1) {
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);
-        vsnprintf(buf, buflen, fmt, cpy);
+        vsnprintf(buf, buflen, fmt, cpy); // 将可变参数cpy格式化输出到buf
         va_end(cpy);
         if (buf[buflen-2] != '\0') {
-            if (buf != staticbuf) s_free(buf);
+            if (buf != staticbuf) s_free(buf); // 需要重新分配内存，释放原空间
             buflen *= 2;
             buf = s_malloc(buflen);
             if (buf == NULL) return NULL;
@@ -607,6 +609,9 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
  *
  * s = sdscatprintf(sdsempty(), "... your format ...", args);
  */
+/*
+* 将使用格式化输出后的字符串追加到sds字符串中
+*/
 sds sdscatprintf(sds s, const char *fmt, ...) {
     va_list ap;
     char *t;
