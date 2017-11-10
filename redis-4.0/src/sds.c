@@ -637,6 +637,7 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  * %U - 64 bit unsigned integer (unsigned long long, uint64_t)
  * %% - Verbatim "%" character.
  */
+/* 自己实现的sdscatprintf */
 sds sdscatfmt(sds s, char const *fmt, ...) {
     size_t initlen = sdslen(s);
     const char *f = fmt;
@@ -741,16 +742,18 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  *
  * Output will be just "Hello World".
  */
+/* 去除在sds的头尾中出现在cest的字符 */
 sds sdstrim(sds s, const char *cset) {
     char *start, *end, *sp, *ep;
     size_t len;
 
     sp = start = s;
     ep = end = s+sdslen(s)-1;
+    /* 从头部和尾部逐个字符遍历往中间靠拢，如果字符在cest中，则继续前进 */
     while(sp <= end && strchr(cset, *sp)) sp++;
     while(ep > sp && strchr(cset, *ep)) ep--;
-    len = (sp > ep) ? 0 : ((ep-sp)+1);
-    if (s != sp) memmove(s, sp, len);
+    len = (sp > ep) ? 0 : ((ep-sp)+1); // 全部被去除了，长度就是0
+    if (s != sp) memmove(s, sp, len); // 拷贝内容
     s[len] = '\0';
     sdssetlen(s,len);
     return s;
