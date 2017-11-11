@@ -775,18 +775,27 @@ sds sdstrim(sds s, const char *cset) {
  * s = sdsnew("Hello World");
  * sdsrange(s,1,-1); => "ello World"
  */
+/* 取字符串的一部分，终止符也包含在内，因此结束符也会作为结果的一部分 */
 void sdsrange(sds s, int start, int end) {
     size_t newlen, len = sdslen(s);
 
     if (len == 0) return;
+    // 如果len-start还是小于0，start=0
     if (start < 0) {
         start = len+start;
         if (start < 0) start = 0;
     }
+    // 如果len-end还是小于0，en=0
     if (end < 0) {
         end = len+end;
         if (end < 0) end = 0;
     }
+    /*
+    * 检查非法操作
+    * start > end
+    * start > len
+    * end > len
+    */
     newlen = (start > end) ? 0 : (end-start)+1;
     if (newlen != 0) {
         if (start >= (signed)len) {
@@ -828,6 +837,7 @@ void sdstoupper(sds s) {
  * If two strings share exactly the same prefix, but one of the two has
  * additional characters, the longer string is considered to be greater than
  * the smaller one. */
+/* 比较两字符串，两个字符串完全相等返回0，否则比较长度 */
 int sdscmp(const sds s1, const sds s2) {
     size_t l1, l2, minlen;
     int cmp;
