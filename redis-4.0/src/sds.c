@@ -92,7 +92,7 @@ static inline char sdsReqType(size_t string_size) {
  * 如果init为NULL，则字符串是0字节
  * 可以用printf打印sds结构体，因为字符串始终是包含隐式的空结束符
  * 另外，字符串是二进制安全的，因此可以在中间包含'\0'字符，字符串长度保存在sds的头部
- * ps : 二进制安全指的是只关心二进制化的字符串,不关心具体格式.只会严格的按照二进制的数据存取。不会妄图已某种特殊格式解析数据。
+ * ps : 二进制安全指的是只关心二进制化的字符串,不关心具体格式.只会严格的按照二进制的数据存取，不会妄图以某种特殊格式解析数据。
  * 比如 C的strlen在遇到\0会自动结束，但是sds结构体的长度保存在len属性。
  */
 sds sdsnewlen(const void *init, size_t initlen) {
@@ -230,6 +230,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     len = sdslen(s);
     sh = (char*)s-sdsHdrSize(oldtype);
     newlen = (len+addlen);
+    // SDS_MAX_PREALLOC == 1MB，如果修改后的长度小于1M，则分配的空间是原来的2倍，否则增加1MB的空间
     if (newlen < SDS_MAX_PREALLOC)
         newlen *= 2;
     else
