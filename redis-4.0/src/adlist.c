@@ -38,6 +38,7 @@
  * by the user before to call AlFreeList().
  *
  * On error, NULL is returned. Otherwise the pointer to the new list. */
+/* 创建一个链表 */
 list *listCreate(void)
 {
     struct list *list;
@@ -53,6 +54,7 @@ list *listCreate(void)
 }
 
 /* Remove all the elements from the list without destroying the list itself. */
+/* 置空链表 */
 void listEmpty(list *list)
 {
     unsigned long len;
@@ -61,10 +63,10 @@ void listEmpty(list *list)
     current = list->head;
     len = list->len;
     while(len--) {
-        next = current->next;
+        next = current->next;// 先保存下一个指针
         if (list->free) list->free(current->value);
         zfree(current);
-        current = next;
+        current = next;// 删除后，更新当前指针位置
     }
     list->head = list->tail = NULL;
     list->len = 0;
@@ -85,6 +87,7 @@ void listRelease(list *list)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+/* 插入新元素，前插 */
 list *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
@@ -99,7 +102,7 @@ list *listAddNodeHead(list *list, void *value)
         node->prev = NULL;
         node->next = list->head;
         list->head->prev = node;
-        list->head = node;
+        list->head = node;/* 重置头指针 */
     }
     list->len++;
     return list;
@@ -111,6 +114,7 @@ list *listAddNodeHead(list *list, void *value)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+/* 插入新元素，后插*/
 list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
@@ -125,12 +129,13 @@ list *listAddNodeTail(list *list, void *value)
         node->prev = list->tail;
         node->next = NULL;
         list->tail->next = node;
-        list->tail = node;
+        list->tail = node;/* 重置尾指针 */
     }
     list->len++;
     return list;
 }
 
+/* 在链表中插入元素 */
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
