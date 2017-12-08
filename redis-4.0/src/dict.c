@@ -70,7 +70,7 @@ static int _dictKeyIndex(dict *ht, const void *key, unsigned int hash, dictEntry
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
-
+/* 哈希函数，设置和获取哈希因子 */
 static uint8_t dict_hash_function_seed[16];
 
 void dictSetHashFunctionSeed(uint8_t *seed) {
@@ -99,6 +99,10 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* Reset a hash table already initialized with ht_init().
  * NOTE: This function should only be called by ht_destroy(). */
+/* 
+* 重置一个使用ht_init函数初始化的哈希表 
+* 只能通过ht_destroy函数调用
+*/
 static void _dictReset(dictht *ht)
 {
     ht->table = NULL;
@@ -132,6 +136,10 @@ int _dictInit(dict *d, dictType *type,
 
 /* Resize the table to the minimal size that contains all the elements,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
+/*
+* 重新设置哈希表的大小，重新设置后的大小能保存所有的元素 
+* 保持used/buckets的比例<=1不变
+*/
 int dictResize(dict *d)
 {
     int minimal;
@@ -165,6 +173,7 @@ int dictExpand(dict *d, unsigned long size)
 
     /* Is this the first initialization? If so it's not really a rehashing
      * we just set the first hash table so that it can accept keys. */
+    /* 如果ht[0].table == NULL，说明是第一次初始化，那不是真正的重新哈希，相当于创建哈希表的操作，只需要设置第一个哈希表即可 */
     if (d->ht[0].table == NULL) {
         d->ht[0] = n;
         return DICT_OK;
