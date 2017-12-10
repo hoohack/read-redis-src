@@ -194,6 +194,13 @@ int dictExpand(dict *d, unsigned long size)
  * guaranteed that this function will rehash even a single bucket, since it
  * will visit at max N*10 empty buckets in total, otherwise the amount of
  * work it does would be unbound and the function may block for a long time. */
+/* 
+ * 实现持续的重新哈希，如果还有需要重新哈希的key，返回1，否则返回0
+ *
+ * 需要注意的是，rehash持续将bucket从老的哈希表移到新的哈希表，但是，因为有的哈希表是空的，
+ * 因此函数不能保证即使一个bucket也会被rehash，因为函数最多一共会访问N*10个空bucket，不然的话，
+ * 函数将会耗费过多性能，而且函数会被阻塞一段时间
+ */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
@@ -204,12 +211,14 @@ int dictRehash(dict *d, int n) {
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
         assert(d->ht[0].size > (unsigned long)d->rehashidx);
+        /* 找到非空的哈希表下标 */
         while(d->ht[0].table[d->rehashidx] == NULL) {
             d->rehashidx++;
             if (--empty_visits == 0) return 1;
         }
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
+        /* 实现将bucket从老的哈希表移到新的哈希表 */
         while(de) {
             unsigned int h;
 
@@ -227,6 +236,7 @@ int dictRehash(dict *d, int n) {
     }
 
     /* Check if we already rehashed the whole table... */
+    /* 如果已经完成了，释放旧的哈希表，返回0 */
     if (d->ht[0].used == 0) {
         zfree(d->ht[0].table);
         d->ht[0] = d->ht[1];
@@ -239,6 +249,7 @@ int dictRehash(dict *d, int n) {
     return 1;
 }
 
+/* 返回当前时间，单位：毫秒 */
 long long timeInMilliseconds(void) {
     struct timeval tv;
 
