@@ -309,6 +309,17 @@ int dictAdd(dict *d, void *key, void *val)
  *
  * If key was added, the hash entry is returned to be manipulated by the caller.
  */
+/*
+* 函数增加一个元素到entry，函数保证将值放到调用者想要放的位置，而不是仅仅设置一个值然后返回
+* 函数会直接暴露API给用户调用，主要为了保存空指针而不是哈希值，比如：
+* entry = dictAddRaw(dict,mykey,NULL);
+* if (entry != NULL) dictSetSignedIntegerVal(entry,1000);
+*
+* 函数返回值：
+* 如果key已经存在，返回NULL
+* 如果existing不为空，*existing就是existing entry的值
+* 如果key成功添加，返回entry（调用者拿到之后可以继续进行其他操作）。
+*/
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 {
     int index;
@@ -319,6 +330,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
+    /* 获取新元素的下标，如果已经存在，返回-1 */
     if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
         return NULL;
 
@@ -326,7 +338,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * Insert the element in top, with the assumption that in a database
      * system it is more likely that recently added entries are accessed
      * more frequently. */
-    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0]; // 如果正在进行rehash操作，返回ht[1],否则返回ht[0]
     entry = zmalloc(sizeof(*entry));
     entry->next = ht->table[index];
     ht->table[index] = entry;
