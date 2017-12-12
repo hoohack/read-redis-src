@@ -490,6 +490,9 @@ dictEntry *dictUnlink(dict *ht, const void *key) {
 
 /* You need to call this function to really free the entry after a call
  * to dictUnlink(). It's safe to call this function with 'he' = NULL. */
+/*
+ * 真正释放entry占用空间
+ */
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
     dictFreeKey(d, he);
@@ -498,6 +501,7 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
 }
 
 /* Destroy an entire dictionary */
+/* 销毁整个字典 */
 int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
     unsigned long i;
 
@@ -1063,6 +1067,9 @@ unsigned int dictGetHash(dict *d, const void *key) {
  * the hash value should be provided using dictGetHash.
  * no string / key comparison is performed.
  * return value is the reference to the dictEntry if found, or NULL if not found. */
+/*
+ * 给定一个指针和哈希值找出字典的一个entry
+ */
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, unsigned int hash) {
     dictEntry *he, **heref;
     unsigned int idx, table;
