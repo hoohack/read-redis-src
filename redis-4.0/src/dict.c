@@ -317,7 +317,7 @@ int dictAdd(dict *d, void *key, void *val)
 *
 * 函数返回值：
 * 如果key已经存在，返回NULL
-* 如果existing不为空，*existing就是existing entry的值
+* 如果existing不为空，*existing会赋值为existing entry的值
 * 如果key成功添加，返回entry（调用者拿到之后可以继续进行其他操作）。
 */
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
@@ -354,12 +354,14 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update
  * operation. */
+/* 添加一个元素，如果原来的key存在，则覆盖 */
 int dictReplace(dict *d, void *key, void *val)
 {
     dictEntry *entry, *existing, auxentry;
 
     /* Try to add the element. If the key
      * does not exists dictAdd will suceed. */
+    /* 如果添加成功，dictAddRaw返回非空值 */
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
         dictSetVal(d, entry, val);
@@ -371,6 +373,10 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
+    /*
+    * 设置新值，释放旧值，这个顺序很重要，因为值可能是与原来一样的
+    * 在这个上下文里，考虑引用计数，我们希望的是先加再减，而不是反过来
+    */
     auxentry = *existing;
     dictSetVal(d, existing, val);
     dictFreeVal(d, &auxentry);
@@ -384,6 +390,9 @@ int dictReplace(dict *d, void *key, void *val)
  * existing key is returned.)
  *
  * See dictAddRaw() for more information. */
+/* dictAddRaw的简易版本
+ * 函数返回指定key的entry，尽管key已经存在且不能被添加（此时返回existing）
+ */
 dictEntry *dictAddOrFind(dict *d, void *key) {
     dictEntry *entry, *existing;
     entry = dictAddRaw(d,key,&existing);
@@ -393,28 +402,34 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
 /* Search and remove an element. This is an helper function for
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
+/*
+* 查找和移除一个值
+*/
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     unsigned int h, idx;
     dictEntry *he, *prevHe;
     int table;
 
+    /* 哈希表为空，返回NULL */
     if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
 
     if (dictIsRehashing(d)) _dictRehashStep(d);
-    h = dictHashKey(d, key);
+    h = dictHashKey(d, key); // 获得key的哈希值
 
+    /* 遍历hash表，也就是ht[0]和ht[1]，保证在渐进rehash阶段也能正常操作 */
     for (table = 0; table <= 1; table++) {
-        idx = h & d->ht[table].sizemask;
-        he = d->ht[table].table[idx];
+        idx = h & d->ht[table].sizemask; // 获得下标
+        he = d->ht[table].table[idx]; // 某个entry list
         prevHe = NULL;
         while(he) {
             if (key==he->key || dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
-                    prevHe->next = he->next;
+                    prevHe->next = he->next; // 前一个节点的next指针指向下一个节点
                 else
-                    d->ht[table].table[idx] = he->next;
+                    d->ht[table].table[idx] = he->next; // 如果是第一个，entry子项的头指针直接指向下一个节点
                 if (!nofree) {
+                    // 释放空间操作
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                     zfree(he);
@@ -425,13 +440,14 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
             prevHe = he;
             he = he->next;
         }
-        if (!dictIsRehashing(d)) break;
+        if (!dictIsRehashing(d)) break; // 如果不在rehash阶段，只需要循环一次
     }
     return NULL; /* not found */
 }
 
 /* Remove an element, returning DICT_OK on success or DICT_ERR if the
  * element was not found. */
+/* 删除元素，key所在的entry占用的空间会被释放 */
 int dictDelete(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
 }
@@ -457,6 +473,17 @@ int dictDelete(dict *ht, const void *key) {
  * // Do something with entry
  * dictFreeUnlinkedEntry(entry); // <- This does not need to lookup again.
  */
+/*
+* 函数从hash表中删除一个元素，但是不会真正释放key、value及对应的entry
+* 如果找到，返回字典的entry（从table中断开关联），如果之后需要释放，可以调用dictFreeUnlinkedEntry函数
+* 否则如果找不到，返回NULL
+*
+* 当希望从哈希表中移除一个元素并在真正删除它之前使用它，这个函数就能派上用场
+* 如果没有这个函数，只能这样：
+*  entry = dictFind(...);
+*  // Do something with entry
+*  dictDelete(dictionary,entry);
+*/
 dictEntry *dictUnlink(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,1);
 }
