@@ -756,22 +756,25 @@ struct sharedObjectsStruct {
 };
 
 /* ZSETs use a specialized version of Skiplists */
+/* 跳跃表节点定义 */
 typedef struct zskiplistNode {
-    sds ele;
-    double score;
-    struct zskiplistNode *backward;
+    sds ele; // 使用sds字符串保存键值
+    double score; // 分值
+    struct zskiplistNode *backward; // 后退指针
     struct zskiplistLevel {
-        struct zskiplistNode *forward;
-        unsigned int span;
+        struct zskiplistNode *forward; // 前进指针
+        unsigned int span; // 跨度
     } level[];
 } zskiplistNode;
 
+/* 跳跃表 */
 typedef struct zskiplist {
     struct zskiplistNode *header, *tail;
     unsigned long length;
     int level;
 } zskiplist;
 
+/* redis中，zset数据结构的底层使用字典和跳跃表数据结构 */
 typedef struct zset {
     dict *dict;
     zskiplist *zsl;

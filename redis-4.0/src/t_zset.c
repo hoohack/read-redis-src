@@ -68,6 +68,7 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
+/* 创建一个跳跃表节点，函数结束后sds字符串ele被节点引用 */
 zskiplistNode *zslCreateNode(int level, double score, sds ele) {
     zskiplistNode *zn =
         zmalloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));
@@ -77,6 +78,7 @@ zskiplistNode *zslCreateNode(int level, double score, sds ele) {
 }
 
 /* Create a new skiplist. */
+/* 创建跳跃表 */
 zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
@@ -97,12 +99,17 @@ zskiplist *zslCreate(void) {
 /* Free the specified skiplist node. The referenced SDS string representation
  * of the element is freed too, unless node->ele is set to NULL before calling
  * this function. */
+/*
+* 释放指定的跳跃表节点，跳跃表节点引用的sds字符串也会被释放
+* 如果在调用这个函数前就被释放了，那也不会重复释放它
+*/
 void zslFreeNode(zskiplistNode *node) {
     sdsfree(node->ele);
     zfree(node);
 }
 
 /* Free a whole skiplist. */
+/* 释放整个跳跃表 */
 void zslFree(zskiplist *zsl) {
     zskiplistNode *node = zsl->header->level[0].forward, *next;
 
@@ -119,6 +126,12 @@ void zslFree(zskiplist *zsl) {
  * The return value of this function is between 1 and ZSKIPLIST_MAXLEVEL
  * (both inclusive), with a powerlaw-alike distribution where higher
  * levels are less likely to be returned. */
+/*
+* 为新建的跳跃表节点随机返回一个level值
+* 返回的value 1 <= value <= ZSKIPLIST_MAXLEVEL(32)
+* 根据随机算法所使用的幂次定律，越大的值生成的几率越小。
+* 随机算法中，执行level+1的概率是ZSKIPLIST_P(0.25)
+*/
 int zslRandomLevel(void) {
     int level = 1;
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
