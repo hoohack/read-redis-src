@@ -166,7 +166,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
             rank[i] += x->level[i].span;
             x = x->level[i].forward;
         }
-        update[i] = x; // update保存level i的下一个节点，新节点将与它连接
+        update[i] = x; // update保存当前查找到的level i节点，新节点将与它连接
     }
     /* we assume the element is not already inside, since we allow duplicated
      * scores, reinserting the same element should never happen since the
@@ -177,7 +177,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     */
     level = zslRandomLevel();
     /*
-    * 如果level大于跳跃表原来的最大level，更新跳跃表的最大level，同时初始化头节点中未使用的level
+    * 如果level大于跳跃表原来的最大level，更新跳跃表的最大level，同时初始化下一节点的新level
     */
     if (level > zsl->level) {
         for (i = zsl->level; i < level; i++) {
@@ -189,9 +189,11 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     }
     /* 创建新节点 */
     x = zslCreateNode(level,score,ele);
+    /* 逐层插入 */
     for (i = 0; i < level; i++) {
-        /* 设置新节点的下一个节点 */
+        /* x指向下一个节点 */
         x->level[i].forward = update[i]->level[i].forward;
+        /* 新节点与update连接 */
         update[i]->level[i].forward = x;
 
         /* update span covered by update[i] as x is inserted here */
@@ -205,7 +207,9 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
         update[i]->level[i].span++;
     }
 
+    // 设置前置指针，如果前置是头指针，设为NULL，否则是update[0]，
     x->backward = (update[0] == zsl->header) ? NULL : update[0];
+    /* 如果后面还有节点，使下一节点的前置指针指向当前插入的节点，否则使尾指针指向当前插入的节点 */
     if (x->level[0].forward)
         x->level[0].forward->backward = x;
     else
