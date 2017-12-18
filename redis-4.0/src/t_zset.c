@@ -292,26 +292,37 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     return 0; /* not found */
 }
 
+/* 比较函数, 如果包含最小值本身则做大于判断，否则做大于等于判断 */
 int zslValueGteMin(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
 
+/* 比较函数, 如果包含最大值本身则作小于判断，否则做小于等于判断 */
 int zslValueLteMax(double value, zrangespec *spec) {
     return spec->maxex ? (value < spec->max) : (value <= spec->max);
 }
 
 /* Returns if there is a part of the zset is in range. */
+/* 判断是否有部分zset包含在范围里 */
 int zslIsInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
+    /* 下面这些返回都会返回空
+     * 最小值大于最大值或者
+     * 最小值等于最大值
+     */
     if (range->min > range->max ||
             (range->min == range->max && (range->minex || range->maxex)))
         return 0;
+    // 从尾指针开始
     x = zsl->tail;
+    // 如果尾指针为空或者尾指针的分数值比range的最小值还小，不在范围内，返回0 */
     if (x == NULL || !zslValueGteMin(x->score,range))
         return 0;
+    // 尾指针分数值大于range的最小时，从头指针开始
     x = zsl->header->level[0].forward;
+    // 如果头指针为空或者头指针的分数值比range的最大值还大，不在范围内，返回0 */
     if (x == NULL || !zslValueLteMax(x->score,range))
         return 0;
     return 1;
@@ -319,16 +330,24 @@ int zslIsInRange(zskiplist *zsl, zrangespec *range) {
 
 /* Find the first node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
+/*
+ * 返回skiplist中包含指定范围的第一个节点
+ */
 zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
+    /* 如果超出范围，返回NULL */
     if (!zslIsInRange(zsl,range)) return NULL;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
+        /*
+         * 从头指针不断往下找到符合范围的第一个节点
+         * 通过判断当前节点分数不大于（等于）range的最小值，如果符合，继续往下找下一个节点
+         */
         while (x->level[i].forward &&
             !zslValueGteMin(x->level[i].forward->score,range))
                 x = x->level[i].forward;
@@ -339,22 +358,31 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
     serverAssert(x != NULL);
 
     /* Check if score <= max. */
+    /* 检查score要小于等于range->max */
     if (!zslValueLteMax(x->score,range)) return NULL;
     return x;
 }
 
 /* Find the last node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
+/*
+ * 返回skiplist中包含指定范围的第一个节点
+ */
 zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
+    /* 如果超出范围，返回NULL */
     if (!zslIsInRange(zsl,range)) return NULL;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *IN* range. */
+        /*
+         * 从头指针不断往下找到符合范围的最后一个节点
+         * 通过判断当前节点分数不小于（等于）range的最大值，如果符合，继续往下找下一个节点
+         */
         while (x->level[i].forward &&
             zslValueLteMax(x->level[i].forward->score,range))
                 x = x->level[i].forward;
