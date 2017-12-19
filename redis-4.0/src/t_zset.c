@@ -292,12 +292,12 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     return 0; /* not found */
 }
 
-/* 比较函数, 如果包含最小值本身则做大于判断，否则做大于等于判断 */
+/* 比较函数, 如果是开区间，则做大于判断，否则做大于等于判断 */
 int zslValueGteMin(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
 
-/* 比较函数, 如果包含最大值本身则作小于判断，否则做小于等于判断 */
+/* 比较函数, 如果是开区间，则作小于判断，否则做小于等于判断 */
 int zslValueLteMax(double value, zrangespec *spec) {
     return spec->maxex ? (value < spec->max) : (value <= spec->max);
 }
@@ -400,11 +400,16 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
  * Min and max are inclusive, so a score >= min || score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
+/*
+* 删除跳跃表中所有score在min和max之间的元素（包含mix和max）
+* 函数接受一个zset的哈希表的引用，为了删除哈希表中的元素
+*/
 unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
     int i;
 
+    /* 找到当前分数在范围的最小值元素的节点 */
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         while (x->level[i].forward && (range->minex ?
@@ -418,6 +423,7 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
+    /* 前面找到在范围最小值的元素节点，现在开始删除，直到遇到范围最大值 */
     while (x &&
            (range->maxex ? x->score < range->max : x->score <= range->max))
     {
@@ -428,14 +434,15 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
         removed++;
         x = next;
     }
+    /* 返回删除节点的个数 */
     return removed;
 }
 
+/* 删除跳跃表中所有ele在min和max之间的元素（包含mix和max）*/
 unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
     int i;
-
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
@@ -462,11 +469,16 @@ unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *di
 
 /* Delete all the elements with rank between start and end from the skiplist.
  * Start and end are inclusive. Note that start and end need to be 1-based */
+/*
+* 删除跳跃表中rank值（即跳跃表中的跨度属性）在start及end（包含start和end）的元素 
+* 注意start和end是从1开始的
+*/
 unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned int end, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long traversed = 0, removed = 0;
     int i;
 
+    /* 找到第一个跨度值大于start的元素 */
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         while (x->level[i].forward && (traversed + x->level[i].span) < start) {
@@ -476,6 +488,7 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
         update[i] = x;
     }
 
+    /* 删除后面的节点 */
     traversed++;
     x = x->level[0].forward;
     while (x && traversed <= end) {
@@ -494,6 +507,11 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
  * Returns 0 when the element cannot be found, rank otherwise.
  * Note that the rank is 1-based due to the span of zsl->header to the
  * first element. */
+/* 
+* 根据score和key找到元素的rank值（即跳跃表中的跨度属性）
+* 如果找不到元素，返回0，否则返回它的rank值
+* 注意rank是从1开始计算的，因为zsl->header被视为第一个节点
+*/
 unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
     zskiplistNode *x;
     unsigned long rank = 0;
@@ -505,6 +523,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
             (x->level[i].forward->score < score ||
                 (x->level[i].forward->score == score &&
                 sdscmp(x->level[i].forward->ele,ele) <= 0))) {
+            /* 每个层数的链表节点跨度值相加就是当前节点的rank值 */
             rank += x->level[i].span;
             x = x->level[i].forward;
         }
@@ -518,6 +537,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
 }
 
 /* Finds an element by its rank. The rank argument needs to be 1-based. */
+/* 根据rank值找到元素, rank值需要是从1开始计算的 */
 zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
     zskiplistNode *x;
     unsigned long traversed = 0;
@@ -527,10 +547,12 @@ zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
     for (i = zsl->level-1; i >= 0; i--) {
         while (x->level[i].forward && (traversed + x->level[i].span) <= rank)
         {
+            /* 每个层数的链表节点跨度值相加就是当前节点的rank值 */
             traversed += x->level[i].span;
             x = x->level[i].forward;
         }
         if (traversed == rank) {
+            // 找到走过的跨度等于rank值的节点，返回节点x
             return x;
         }
     }
@@ -538,18 +560,27 @@ zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
 }
 
 /* Populate the rangespec according to the objects min and max. */
+/* 根据min和max填写rangespec值 */
 static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     char *eptr;
-    spec->minex = spec->maxex = 0;
+    spec->minex = spec->maxex = 0; // 开区间标志 exclusive
 
     /* Parse the min-max interval. If one of the values is prefixed
      * by the "(" character, it's considered "open". For instance
      * ZRANGEBYSCORE zset (1.5 (2.5 will match min < x < max
      * ZRANGEBYSCORE zset 1.5 2.5 will instead match min <= x <= max */
+    /*
+    * 解析min-max范围值，如果值是以"("开始的，就被认为是开区间。
+    * 比如ZRANGEBYSCORE zset (1.5 (2.5 被看做 1.5 < x < 2.5
+    * 比如ZRANGEBYSCORE zset 1.5 2.5 被看做 1.5 <= x <= 2.5
+    */
     if (min->encoding == OBJ_ENCODING_INT) {
+        // 如果是整数，直接赋值
         spec->min = (long)min->ptr;
     } else {
+        // 如果是字符串，分析其区间属性以及解析出值
         if (((char*)min->ptr)[0] == '(') {
+            // 以'('开头，strtod转换字符串为浮点数，得到最小值
             spec->min = strtod((char*)min->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
             spec->minex = 1;
@@ -589,6 +620,16 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
   *
   * If the string is not a valid range C_ERR is returned, and the value
   * of *dest and *ex is undefined. */
+/*
+* 根据ZRANGEBYLEX命令的参数解析得到最大值或最小值
+* (foo 代表 foo 开区间
+* [foo 代表 foo 闭区间
+* - 代表最小的字符串
+* + 代表最大的字符串
+* 如果字符串是有效的，*dest指针被设置为redis对象，之后会被用作比较，ex会被设置为0/1，标识闭区间或者开区间，且函数返回C_OK
+* 
+* 如果字符串是无效的范围，函数返回C_ERR，dest和ex都是undefined
+*/
 int zslParseLexRangeItem(robj *item, sds *dest, int *ex) {
     char *c = item->ptr;
 
@@ -604,7 +645,7 @@ int zslParseLexRangeItem(robj *item, sds *dest, int *ex) {
         *dest = shared.minstring;
         return C_OK;
     case '(':
-        *ex = 1;
+        *ex = 1; // 开区间标志
         *dest = sdsnewlen(c+1,sdslen(c)-1);
         return C_OK;
     case '[':
