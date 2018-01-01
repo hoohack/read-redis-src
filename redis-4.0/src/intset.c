@@ -42,6 +42,7 @@
 #define INTSET_ENC_INT64 (sizeof(int64_t))
 
 /* Return the required encoding for the provided value. */
+/* 返回需要的编码值 */
 static uint8_t _intsetValueEncoding(int64_t v) {
     if (v < INT32_MIN || v > INT32_MAX)
         return INTSET_ENC_INT64;
@@ -52,6 +53,7 @@ static uint8_t _intsetValueEncoding(int64_t v) {
 }
 
 /* Return the value at pos, given an encoding. */
+/* 返回集合中指定位置某种编码类型的值 */
 static int64_t _intsetGetEncoded(intset *is, int pos, uint8_t enc) {
     int64_t v64;
     int32_t v32;
@@ -73,11 +75,13 @@ static int64_t _intsetGetEncoded(intset *is, int pos, uint8_t enc) {
 }
 
 /* Return the value at pos, using the configured encoding. */
+/* 返回集合中指定位置的值，使用集合当前的编码值 */
 static int64_t _intsetGet(intset *is, int pos) {
     return _intsetGetEncoded(is,pos,intrev32ifbe(is->encoding));
 }
 
 /* Set the value at pos, using the configured encoding. */
+/* 使用集合当前的编码值，为集合指定位置设置值 */
 static void _intsetSet(intset *is, int pos, int64_t value) {
     uint32_t encoding = intrev32ifbe(is->encoding);
 
@@ -93,15 +97,15 @@ static void _intsetSet(intset *is, int pos, int64_t value) {
     }
 }
 
-/* Create an empty intset. */
+/* 创建一个空的整数集合 */
 intset *intsetNew(void) {
     intset *is = zmalloc(sizeof(intset));
-    is->encoding = intrev32ifbe(INTSET_ENC_INT16);
+    is->encoding = intrev32ifbe(INTSET_ENC_INT16); // 设置编码，并根据需要设置大端/小端模式 */
     is->length = 0;
     return is;
 }
 
-/* Resize the intset */
+/* 重新设置整数集合的大小 */
 static intset *intsetResize(intset *is, uint32_t len) {
     uint32_t size = len*intrev32ifbe(is->encoding);
     is = zrealloc(is,sizeof(intset)+size);
@@ -112,17 +116,25 @@ static intset *intsetResize(intset *is, uint32_t len) {
  * sets "pos" to the position of the value within the intset. Return 0 when
  * the value is not present in the intset and sets "pos" to the position
  * where "value" can be inserted. */
+/* 在集合中查找"value"的位置
+ * 如果找到，返回1，并设置pos为value在整数集合中的位置
+ * 如果value不在整数集合中，返回0.并设置pos为可插入的位置
+ */
 static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
     int min = 0, max = intrev32ifbe(is->length)-1, mid = -1;
     int64_t cur = -1;
 
     /* The value can never be found when the set is empty */
+    /* 如果集合为空，返回0 */
     if (intrev32ifbe(is->length) == 0) {
         if (pos) *pos = 0;
         return 0;
     } else {
         /* Check for the case where we know we cannot find the value,
          * but do know the insert position. */
+        /* 如果查找的值无法被找到（大于最大值／小于最小值）
+         * 直接返回0和设置可插入位置
+         */
         if (value > _intsetGet(is,intrev32ifbe(is->length)-1)) {
             if (pos) *pos = intrev32ifbe(is->length);
             return 0;
@@ -132,6 +144,7 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
         }
     }
 
+    /* 有序集合，使用二分查找 */
     while(max >= min) {
         mid = ((unsigned int)min + (unsigned int)max) >> 1;
         cur = _intsetGet(is,mid);
@@ -144,6 +157,7 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
         }
     }
 
+    /* 找到后，返回1，并设置pos（如果pos不为NULL） */
     if (value == cur) {
         if (pos) *pos = mid;
         return 1;
@@ -154,23 +168,30 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
 }
 
 /* Upgrades the intset to a larger encoding and inserts the given integer. */
+/* 升级整数集合并添加新元素 */
 static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
-    uint8_t curenc = intrev32ifbe(is->encoding);
-    uint8_t newenc = _intsetValueEncoding(value);
+    uint8_t curenc = intrev32ifbe(is->encoding); // 获得集合当前编码
+    uint8_t newenc = _intsetValueEncoding(value); // 获得新编码
     int length = intrev32ifbe(is->length);
     int prepend = value < 0 ? 1 : 0;
 
     /* First set new encoding and resize */
+    /* 首先，设置新编码并调整集合大小 */
     is->encoding = intrev32ifbe(newenc);
     is = intsetResize(is,intrev32ifbe(is->length)+1);
 
     /* Upgrade back-to-front so we don't overwrite values.
      * Note that the "prepend" variable is used to make sure we have an empty
      * space at either the beginning or the end of the intset. */
+    /* 
+     * 从后往前升级，这样不会覆盖原有值
+     * 注意，prepend变量是用于保证集合的头或者尾有足够的空间
+     */
     while(length--)
         _intsetSet(is,length+prepend,_intsetGetEncoded(is,length,curenc));
 
     /* Set the value at the beginning or the end. */
+    /* 集合需要升级，引起升级的新元素要么大于所有现有元素，要么小于所有现有元素，所以要么放在开始(0)，要么放在最后(length) */
     if (prepend)
         _intsetSet(is,0,value);
     else
