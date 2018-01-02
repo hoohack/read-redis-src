@@ -200,6 +200,7 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
     return is;
 }
 
+/* 将集合的from移到to */
 static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
     void *src, *dst;
     uint32_t bytes = intrev32ifbe(is->length)-from;
@@ -221,15 +222,16 @@ static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
     memmove(dst,src,bytes);
 }
 
-/* Insert an integer in the intset */
+/* 添加一个整数到整数集合中 */
 intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
-    uint8_t valenc = _intsetValueEncoding(value);
+    uint8_t valenc = _intsetValueEncoding(value); // 根据值获得需要使用的保存类型
     uint32_t pos;
     if (success) *success = 1;
 
     /* Upgrade encoding if necessary. If we need to upgrade, we know that
      * this value should be either appended (if > 0) or prepended (if < 0),
      * because it lies outside the range of existing values. */
+    /* 如果需要升级，则调用intsetUpgradeAndAdd函数 */
     if (valenc > intrev32ifbe(is->encoding)) {
         /* This always succeeds, so we don't need to curry *success. */
         return intsetUpgradeAndAdd(is,value);
@@ -237,15 +239,21 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
         /* Abort if the value is already present in the set.
          * This call will populate "pos" with the right position to insert
          * the value when it cannot be found. */
+	/*
+	 * 如果value已经在集合中，停止操作 
+	 * 如果找不到value，调用search函数会把可插入元素的位置写到pos中
+	 */
         if (intsetSearch(is,value,&pos)) {
             if (success) *success = 0;
             return is;
         }
 
         is = intsetResize(is,intrev32ifbe(is->length)+1);
+	/* 如果pos小于集合长度，将元素往后移，为value的插入空出一个位置 */
         if (pos < intrev32ifbe(is->length)) intsetMoveTail(is,pos,pos+1);
     }
 
+    // 设置值、集合长度
     _intsetSet(is,pos,value);
     is->length = intrev32ifbe(intrev32ifbe(is->length)+1);
     return is;
