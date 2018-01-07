@@ -132,7 +132,7 @@ void zslFree(zskiplist *zsl) {
 * 根据随机算法所使用的幂次定律，越大的值生成的几率越小。
 * 随机算法中，执行level+1的概率是ZSKIPLIST_P(0.25)
 */
-int 0(void) {
+int zslRandomLevel(void) {
     int level = 1;
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
         level += 1;
