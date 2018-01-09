@@ -352,11 +352,12 @@ unsigned int zipIntSize(unsigned char encoding) {
  * 'rawlen' is only used for ZIP_STR_* encodings and is the length of the
  * srting that this entry represents.
  *
- * The function returns the number of bytes used by the encoding/length
- * header stored in 'p'. */
+ */
+/* 返回被编码/头节点长度占用的字节大小 */
 unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, unsigned int rawlen) {
     unsigned char len = 1, buf[5];
 
+    /* 字符串 */
     if (ZIP_IS_STR(encoding)) {
         /* Although encoding is given it may not be set for strings,
          * so we determine it here using the raw length. */
@@ -378,7 +379,7 @@ unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, uns
             buf[4] = rawlen & 0xff;
         }
     } else {
-        /* Implies integer encoding, so length is always 1. */
+        /* 整数，长度是1 */
         if (!p) return len;
         buf[0] = encoding;
     }
@@ -388,11 +389,12 @@ unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, uns
     return len;
 }
 
-/* Decode the entry encoding type and data length (string length for strings,
- * number of bytes used for the integer for integer entries) encoded in 'ptr'.
- * The 'encoding' variable will hold the entry encoding, the 'lensize'
- * variable will hold the number of bytes required to encode the entry
- * length, and the 'len' variable will hold the entry length. */
+/* 
+ * 解码得到压缩表节点的编码类型和数据长度
+ * encoding 变量保存节点的编码
+ * lensize 变量保存节点使用编码的字节大小
+ * len 变量保存节点的大小
+ */
 #define ZIP_DECODE_LENGTH(ptr, encoding, lensize, len) do {                    \
     ZIP_ENTRY_ENCODING((ptr), (encoding));                                     \
     if ((encoding) < ZIP_STR_MASK) {                                           \
@@ -419,6 +421,10 @@ unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, uns
 
 /* Encode the length of the previous entry and write it to "p". This only
  * uses the larger encoding (required in __ziplistCascadeUpdate). */
+/*
+ * 对前一个节点长度编码并写到p
+ * 这个方法只用更大的编码
+ */
 int zipStorePrevEntryLengthLarge(unsigned char *p, unsigned int len) {
     if (p != NULL) {
         p[0] = ZIP_BIG_PREVLEN;
@@ -430,6 +436,10 @@ int zipStorePrevEntryLengthLarge(unsigned char *p, unsigned int len) {
 
 /* Encode the length of the previous entry and write it to "p". Return the
  * number of bytes needed to encode this length if "p" is NULL. */
+/*
+ * 同上，对前一个节点编码
+ * 如果p不为空，函数返回需要编码该长度的字节大小
+ */
 unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     if (p == NULL) {
         return (len < ZIP_BIG_PREVLEN) ? 1 : sizeof(len)+1;
@@ -443,8 +453,10 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     }
 }
 
-/* Return the number of bytes used to encode the length of the previous
- * entry. The length is returned by setting the var 'prevlensize'. */
+/*
+ * 返回用于编码前一个节点长度的字节大小
+ * 通过引用参数prevlensize 返回
+ */
 #define ZIP_DECODE_PREVLENSIZE(ptr, prevlensize) do {                          \
     if ((ptr)[0] < ZIP_BIG_PREVLEN) {                                          \
         (prevlensize) = 1;                                                     \
@@ -453,13 +465,12 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     }                                                                          \
 } while(0);
 
-/* Return the length of the previous element, and the number of bytes that
- * are used in order to encode the previous element length.
- * 'ptr' must point to the prevlen prefix of an entry (that encodes the
- * length of the previos entry in order to navigate the elements backward).
- * The length of the previous entry is stored in 'prevlen', the number of
- * bytes needed to encode the previous entry length are stored in
- * 'prevlensize'. */
+/*
+ * 返回前一个节点的长度以及用于编码前一个节点长度的字节大小
+ * ptr指向前一个节点
+ * prevlen 保存前一个节点的长度
+ * prevlensize 保存用于编码前一个节点长度的字节大小
+ */
 #define ZIP_DECODE_PREVLEN(ptr, prevlensize, prevlen) do {                     \
     ZIP_DECODE_PREVLENSIZE(ptr, prevlensize);                                  \
     if ((prevlensize) == 1) {                                                  \
@@ -471,28 +482,19 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     }                                                                          \
 } while(0);
 
-/* Given a pointer 'p' to the prevlen info that prefixes an entry, this
- * function returns the difference in number of bytes needed to encode
- * the prevlen if the previous entry changes of size.
- *
- * So if A is the number of bytes used right now to encode the 'prevlen'
- * field.
- *
- * And B is the number of bytes that are needed in order to encode the
- * 'prevlen' if the previous element will be updated to one of size 'len'.
- *
- * Then the function returns B - A
- *
- * So the function returns a positive number if more space is needed,
- * a negative number if less space is needed, or zero if the same space
- * is needed. */
+/*
+ * 如果前置节点大小发生变化，返回编码新的前置节点长度所需的字节大小
+ * 如果需要更多空间，返回正数
+ * 如果需要更少空间，返回负数
+ * 相等，则返回0
+ */
 int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
     unsigned int prevlensize;
     ZIP_DECODE_PREVLENSIZE(p, prevlensize);
     return zipStorePrevEntryLength(NULL, len) - prevlensize;
 }
 
-/* Return the total number of bytes used by the entry pointed to by 'p'. */
+/* 返回p指向的节点占用的所有字节大小 */
 unsigned int zipRawEntryLength(unsigned char *p) {
     unsigned int prevlensize, encoding, lensize, len;
     ZIP_DECODE_PREVLENSIZE(p, prevlensize);
@@ -500,12 +502,16 @@ unsigned int zipRawEntryLength(unsigned char *p) {
     return prevlensize + lensize + len;
 }
 
-/* Check if string pointed to by 'entry' can be encoded as an integer.
- * Stores the integer value in 'v' and its encoding in 'encoding'. */
+/*
+ * 检查entry指向的节点保存字符串是否能被编码为整数
+ * 保存转换后的整数的值到v以及其编码值到encoding
+ */
 int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, unsigned char *encoding) {
     long long value;
 
+    /* 长度大于32 / 等于0，非合法整数 返回0 */
     if (entrylen >= 32 || entrylen == 0) return 0;
+    /* 调用string2ll函数尝试将字符串转换为整数，转换成功，根据转换址得到其编码值 */
     if (string2ll((char*)entry,entrylen,&value)) {
         /* Great, the string can be encoded. Check what's the smallest
          * of our encoding types that can hold this value. */
