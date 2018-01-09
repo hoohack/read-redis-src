@@ -340,6 +340,14 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
  * Because of its strictness, it is safe to use this function to check if
  * you can convert a string into a long long, and obtain back the string
  * from the number without any loss in the string representation. */
+/*
+ * 转换一个字符串为long long类型整数
+ * 如果字符串成功被转换，返回1，否则返回0，返回值会保存在引用参数value中
+ *
+ * 函数要求可以被转换的字符串是没有空格和其他字符在数字字符前面，也不可以以0开头
+ * 因为函数校验的严格性，所以可以放心的使用此函数校验字符串是否可以被转换为long long类型
+ * 之后，也可以将返回值再次转换为字符串，因为不会丢失原字符串的任何内容
+ */
 int string2ll(const char *s, size_t slen, long long *value) {
     const char *p = s;
     size_t plen = 0;
@@ -349,22 +357,23 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (plen == slen)
         return 0;
 
-    /* Special case: first and only digit is 0. */
+    /* 如果长度是1，且只有'0'字符，value=0 */
     if (slen == 1 && p[0] == '0') {
         if (value != NULL) *value = 0;
         return 1;
     }
 
+    /* 负数，设置负数标志，并使指针向前移动 */
     if (p[0] == '-') {
         negative = 1;
         p++; plen++;
 
-        /* Abort on only a negative sign. */
+        /* 如果只有一个'-'字符，非法case，返回0 */
         if (plen == slen)
             return 0;
     }
 
-    /* First digit should be 1-9, otherwise the string should just be 0. */
+    /* 第一个字符必须是1-9，如果是0且长度为1，value=0，否则，无法转换 */
     if (p[0] >= '1' && p[0] <= '9') {
         v = p[0]-'0';
         p++; plen++;
@@ -375,28 +384,30 @@ int string2ll(const char *s, size_t slen, long long *value) {
         return 0;
     }
 
+    /* v = v*10 +v1 */
     while (plen < slen && p[0] >= '0' && p[0] <= '9') {
-        if (v > (ULLONG_MAX / 10)) /* Overflow. */
+        if (v > (ULLONG_MAX / 10)) /* 将会溢出 */
             return 0;
         v *= 10;
 
-        if (v > (ULLONG_MAX - (p[0]-'0'))) /* Overflow. */
+        if (v > (ULLONG_MAX - (p[0]-'0'))) /* 将会溢出 */
             return 0;
         v += p[0]-'0';
 
         p++; plen++;
     }
 
-    /* Return if not all bytes were used. */
+    /* 如果还有其他字符在后面，无法转换，返回0 */
     if (plen < slen)
         return 0;
 
     if (negative) {
-        if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
+        /* 负数的处理 */
+        if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* 将会溢出 */
             return 0;
         if (value != NULL) *value = -v;
     } else {
-        if (v > LLONG_MAX) /* Overflow. */
+        if (v > LLONG_MAX) /* 将会溢出 */
             return 0;
         if (value != NULL) *value = v;
     }
