@@ -534,7 +534,7 @@ int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, un
     return 0;
 }
 
-/* Store integer 'value' at 'p', encoded as 'encoding' */
+/* 保存整数 value 到节点p，使用encoding参数进行编码 */
 void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encoding) {
     int16_t i16;
     int32_t i32;
@@ -564,7 +564,7 @@ void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encoding) {
     }
 }
 
-/* Read integer encoded as 'encoding' from 'p' */
+/* 从节点p中读取整数值 */
 int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
     int16_t i16;
     int32_t i32;
@@ -596,27 +596,28 @@ int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
     return ret;
 }
 
-/* Return a struct with all information about an entry. */
+/* 返回整个节点的所有信息 */
 void zipEntry(unsigned char *p, zlentry *e) {
 
+    /* 得到两个长度值 */
     ZIP_DECODE_PREVLEN(p, e->prevrawlensize, e->prevrawlen);
     ZIP_DECODE_LENGTH(p + e->prevrawlensize, e->encoding, e->lensize, e->len);
-    e->headersize = e->prevrawlensize + e->lensize;
-    e->p = p;
+    e->headersize = e->prevrawlensize + e->lensize; // 设置头节点大小
+    e->p = p; // 设置p指针
 }
 
-/* Create a new empty ziplist. */
+/* 创建一个空的压缩表 */
 unsigned char *ziplistNew(void) {
     unsigned int bytes = ZIPLIST_HEADER_SIZE+1;
     unsigned char *zl = zmalloc(bytes);
     ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
     ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE);
     ZIPLIST_LENGTH(zl) = 0;
-    zl[bytes-1] = ZIP_END;
+    zl[bytes-1] = ZIP_END; // 末端标记
     return zl;
 }
 
-/* Resize the ziplist. */
+/* 重新设置压缩表的大小 */
 unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
     zl = zrealloc(zl,len);
     ZIPLIST_BYTES(zl) = intrev32ifbe(len);
