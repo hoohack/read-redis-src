@@ -723,7 +723,7 @@ unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int
     int nextdiff = 0;
     zlentry first, tail;
 
-    /* 拿到第一个节点 */
+    /* 记录第一个被删除节点 */
     zipEntry(p, &first);
     /* 计算需要被删除的节点数量 */
     for (i = 0; p[0] != ZIP_END && i < num; i++) {
@@ -731,52 +731,58 @@ unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int
         deleted++;
     }
 
-    totlen = p-first.p; /* 总共被删除的字节大小 */
+    totlen = p-first.p; /* 记录总共被删除的字节大小 */
     if (totlen > 0) {
         if (p[0] != ZIP_END) {
+	    /* 执行到这，说明被删除的最后一个节点后面还有节点 */
             /* Storing `prevrawlen` in this entry may increase or decrease the
              * number of bytes required compare to the current `prevrawlen`.
              * There always is room to store this, because it was previously
              * stored by an entry that is now being deleted. */
+	    /*
+	     * 需要保证被删除的最后一个节点的后继节点有足够空间保存第一个被删除节点的前置节点的大小
+	     * 删除了节点后，要保持第一个被删除节点前置节点的大小，可能是增大或者减小
+	     */
             nextdiff = zipPrevLenByteDiff(p,first.prevrawlen);
 
-            /* Note that there is always space when p jumps backward: if
-             * the new previous entry is large, one of the deleted elements
-             * had a 5 bytes prevlen header, so there is for sure at least
-             * 5 bytes free and we need just 4. */
+	    /* 如果需要更多空间，p往后退，为保存新的header大小腾出空间，如果需要更少空间，往前移 */
             p -= nextdiff;
+	    /* 将第一个被删除节点的前置节点大小编码到p中 */
             zipStorePrevEntryLength(p,first.prevrawlen);
 
-            /* Update offset for tail */
+	    /* 更新尾节点的偏移量，因为删除了totlen，所以减去totle */
             ZIPLIST_TAIL_OFFSET(zl) =
                 intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))-totlen);
 
             /* When the tail contains more than one entry, we need to take
              * "nextdiff" in account as well. Otherwise, a change in the
              * size of prevlen doesn't have an effect on the *tail* offset. */
+	    /*
+	     * 如果被删除的最后一个节点后面多于一个节点，需要把nextdiff也计算到表尾偏移量中
+	     * 否则，前置节点大小的改变不会作用于节点偏移量
+	     */
             zipEntry(p, &tail);
             if (p[tail.headersize+tail.len] != ZIP_END) {
                 ZIPLIST_TAIL_OFFSET(zl) =
                    intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
             }
 
-            /* Move tail to the front of the ziplist */
+	    /* 把后面的节点往前移 */
             memmove(first.p,p,
                 intrev32ifbe(ZIPLIST_BYTES(zl))-(p-zl)-1);
         } else {
-            /* The entire tail was deleted. No need to move memory. */
+	    /* 如果执行到这，整个尾节点都被删除了，不需要移动内存，只需要更新尾节点的偏移量 */
             ZIPLIST_TAIL_OFFSET(zl) =
                 intrev32ifbe((first.p-zl)-first.prevrawlen);
         }
 
-        /* Resize and update length */
+	/* 调整压缩表的大小 */
         offset = first.p-zl;
         zl = ziplistResize(zl, intrev32ifbe(ZIPLIST_BYTES(zl))-totlen+nextdiff);
         ZIPLIST_INCR_LENGTH(zl,-deleted);
         p = zl+offset;
 
-        /* When nextdiff != 0, the raw length of the next entry has changed, so
-         * we need to cascade the update throughout the ziplist */
+	/* 如果nextdiff不等于0，说明被删除节点后面的节点的header信息还需要更新，执行连锁更新 */
         if (nextdiff != 0)
             zl = __ziplistCascadeUpdate(zl,p);
     }
