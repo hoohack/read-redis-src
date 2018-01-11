@@ -897,31 +897,42 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
 
 /* Merge ziplists 'first' and 'second' by appending 'second' to 'first'.
  *
+ * 合并两个压缩表 first和second，把second追加到first后面
+ *
  * NOTE: The larger ziplist is reallocated to contain the new merged ziplist.
  * Either 'first' or 'second' can be used for the result.  The parameter not
  * used will be free'd and set to NULL.
+ * 返回的压缩表会重新分配大小以保存合并后的压缩表
+ * first都可以用来保存结果，没有用到的那个会被释放并设为NULL
  *
  * After calling this function, the input parameters are no longer valid since
  * they are changed and free'd in-place.
+ * 调用函数之后，传入的参数或被释放或被改变了，已经无效
  *
  * The result ziplist is the contents of 'first' followed by 'second'.
+ * 返回的压缩表合并结果包含的内容是first+second
  *
  * On failure: returns NULL if the merge is impossible.
  * On success: returns the merged ziplist (which is expanded version of either
  * 'first' or 'second', also frees the other unused input ziplist, and sets the
- * input ziplist argument equal to newly reallocated ziplist return value. */
+ * input ziplist argument equal to newly reallocated ziplist return value.
+ * 失败返回NULL
+ * 成功返回合并后的压缩表（合并后的压缩表是first/second的“扩展”版本，同时释放了一个未用到的压缩表，并设置另一个为新的压缩表作为返回
+ */
 unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
-    /* If any params are null, we can't merge, so NULL. */
+    /* 参数为NULL，无法合并，返回NULL */
     if (first == NULL || *first == NULL || second == NULL || *second == NULL)
         return NULL;
 
-    /* Can't merge same list into itself. */
+    /* 不能合并自己 */
     if (*first == *second)
         return NULL;
 
+    /* 获取第一个压缩表的字节大小和长度 */
     size_t first_bytes = intrev32ifbe(ZIPLIST_BYTES(*first));
     size_t first_len = intrev16ifbe(ZIPLIST_LENGTH(*first));
 
+    /* 获取第二个压缩表的字节大小和长度 */
     size_t second_bytes = intrev32ifbe(ZIPLIST_BYTES(*second));
     size_t second_len = intrev16ifbe(ZIPLIST_LENGTH(*second));
 
@@ -931,15 +942,19 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
     /* Pick the largest ziplist so we can resize easily in-place.
      * We must also track if we are now appending or prepending to
      * the target ziplist. */
+    /* 
+     * 选择最大的压缩表作为合并目标压缩表，这样可以更容易地调整大小
+     * 需要记录是把second追加到first后面还是把first向前插入second
+    */
     if (first_len >= second_len) {
-        /* retain first, append second to first. */
+	/* 第一个比较大，保留第一个，追加second到first */
         target = *first;
         target_bytes = first_bytes;
         source = *second;
         source_bytes = second_bytes;
         append = 1;
     } else {
-        /* else, retain second, prepend first to second. */
+	/* 第二个比较大，把first前置插入到second */
         target = *second;
         target_bytes = second_bytes;
         source = *first;
@@ -947,46 +962,58 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
         append = 0;
     }
 
-    /* Calculate final bytes (subtract one pair of metadata) */
+    /* 计算总需要的字节大小（减去一对头节点和尾节点的大小，因为有两对）和长度 */
     size_t zlbytes = first_bytes + second_bytes -
                      ZIPLIST_HEADER_SIZE - ZIPLIST_END_SIZE;
     size_t zllength = first_len + second_len;
 
-    /* Combined zl length should be limited within UINT16_MAX */
+    /* zllength不能大于UINT16_MAX */
     zllength = zllength < UINT16_MAX ? zllength : UINT16_MAX;
 
     /* Save offset positions before we start ripping memory apart. */
+    /* 接下来要修改内存位置，先记录偏移量 */
     size_t first_offset = intrev32ifbe(ZIPLIST_TAIL_OFFSET(*first));
     size_t second_offset = intrev32ifbe(ZIPLIST_TAIL_OFFSET(*second));
 
-    /* Extend target to new zlbytes then append or prepend source. */
+    /* 为目标压缩表重新分配大小 */
     target = zrealloc(target, zlbytes);
     if (append) {
-        /* append == appending to target */
-        /* Copy source after target (copying over original [END]):
-         *   [TARGET - END, SOURCE - HEADER] */
+	/*
+	 * 追加
+	 * 拷贝数据到target
+	 * 目标起始位置：target+target_bytes - ZIPLIST_END_SIZE
+	 * 数据源：source + ZIPLIST_HEADER_SIZE
+	 * 大小：source_bytes - ZIPLIST_HEADER_SIZE
+	 */
         memcpy(target + target_bytes - ZIPLIST_END_SIZE,
                source + ZIPLIST_HEADER_SIZE,
                source_bytes - ZIPLIST_HEADER_SIZE);
     } else {
-        /* !append == prepending to target */
-        /* Move target *contents* exactly size of (source - [END]),
-         * then copy source into vacataed space (source - [END]):
-         *   [SOURCE - END, TARGET - HEADER] */
+	/* 
+	 * 前置追加
+	 * 先往后移动，给first前置插入腾出空间
+	 * 然后拷贝first到target，实现前置插入
+	 */
         memmove(target + source_bytes - ZIPLIST_END_SIZE,
                 target + ZIPLIST_HEADER_SIZE,
                 target_bytes - ZIPLIST_HEADER_SIZE);
         memcpy(target, source, source_bytes - ZIPLIST_END_SIZE);
     }
 
-    /* Update header metadata. */
+    /* 更新头节点的属性 */
     ZIPLIST_BYTES(target) = intrev32ifbe(zlbytes);
     ZIPLIST_LENGTH(target) = intrev16ifbe(zllength);
     /* New tail offset is:
      *   + N bytes of first ziplist
      *   - 1 byte for [END] of first ziplist
      *   + M bytes for the offset of the original tail of the second ziplist
-     *   - J bytes for HEADER because second_offset keeps no header. */
+     *   - J bytes for HEADER because second_offset keeps no header.
+     * 设置新的尾节点偏移量
+     * +first_bytes 第一个压缩表的字节大小
+     * -1 减去一个尾节点大小
+     * +second_offset 第二个压缩表的偏移量
+     * -ZIPLIST_HEADER_SIZE 减去一个头节点大小
+     */
     ZIPLIST_TAIL_OFFSET(target) = intrev32ifbe(
                                    (first_bytes - ZIPLIST_END_SIZE) +
                                    (second_offset - ZIPLIST_HEADER_SIZE));
@@ -995,9 +1022,10 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
      * correct prev length value (then it assumes the rest of the list is okay).
      * We tell CascadeUpdate to start at the first ziplist's tail element to fix
      * the merge seam. */
+    /* 连锁更新 修复前置长度大小发生变化的情况 */
     target = __ziplistCascadeUpdate(target, target+first_offset);
 
-    /* Now free and NULL out what we didn't realloc */
+    /* 没有用到的参数，释放空间，并设置为NULL */
     if (append) {
         zfree(*second);
         *second = NULL;
