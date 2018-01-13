@@ -89,7 +89,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CRON_DBS_PER_CALL 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
-#define OBJ_SHARED_INTEGERS 10000
+#define OBJ_SHARED_INTEGERS 10000 /* redis在初始化服务器时，会创建值为0-9999的字符串对象，做共享对象使用 */
 #define OBJ_SHARED_BULKHDR_LEN 32
 #define LOG_MAX_LEN    1024 /* Default maximum length of syslog messages */
 #define AOF_REWRITE_PERC  100

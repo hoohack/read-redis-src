@@ -505,12 +505,16 @@ int d2string(char *buf, size_t len, double value) {
  * it does not use exponential format and trims trailing zeroes at the end,
  * however this results in loss of precision. Otherwise exp format is used
  * and the output of snprintf() is not modified.
+ * 转换long double类型数据为字符串
+ * 如果humanfriendly不为0，那么转换后不会使用指数法表示，以及删去字符串尾部的0字符
+ * 结果可能会丢失精度
  *
  * The function returns the length of the string or zero if there was not
  * enough buffer room to store it. */
 int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
     size_t l;
 
+    /* 数值太大 */
     if (isinf(value)) {
         /* Libc in odd systems (Hi Solaris!) will format infinite in a
          * different way, so better to handle it in an explicit way. */
@@ -528,6 +532,10 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
          * way that is "non surprising" for the user (that is, most small
          * decimal numbers will be represented in a way that when converted
          * back into a string are exactly the same as what the user typed.) */
+	/*
+	 * 使用17位精度保存数据
+	 * 128位表示的浮点数，在四舍五入的大部分小数
+	 */
         l = snprintf(buf,len,"%.17Lf", value);
         if (l+1 > len) return 0; /* No room. */
         /* Now remove trailing zeroes after the '.' */
@@ -541,8 +549,10 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
         }
     } else {
         l = snprintf(buf,len,"%.17Lg", value);
+	/* l+1大于buf长度，没有足够空间存储 */
         if (l+1 > len) return 0; /* No room. */
     }
+    /* 增加结束位 */
     buf[l] = '\0';
     return l;
 }

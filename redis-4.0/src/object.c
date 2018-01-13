@@ -1,4 +1,5 @@
 /* Redis Object implementation.
+ * Redis对象实现
  *
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -47,6 +48,9 @@ robj *createObject(int type, void *ptr) {
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
+    /*
+     * 设置LRU为当前LRU时钟 或 LFU计数
+     */
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
@@ -74,6 +78,11 @@ robj *makeObjectShared(robj *o) {
 
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
+/*
+ * 创建一个字符串对象
+ * 编码类型是OBJ_ENCODING_RAW
+ * ptr指向sds字符串
+ */
 robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(OBJ_STRING, sdsnewlen(ptr,len));
 }
@@ -81,14 +90,18 @@ robj *createRawStringObject(const char *ptr, size_t len) {
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
+/*
+ * 创建一个使用EMBSTR编码的字符串对象
+ * EMBSTR字符串是不可被修改的，在分配空间时，会分配一块连续的空间保存redis对象和字符串对象
+ */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
-    o->type = OBJ_STRING;
-    o->encoding = OBJ_ENCODING_EMBSTR;
-    o->ptr = sh+1;
-    o->refcount = 1;
+    o->type = OBJ_STRING; // 设置对象类型
+    o->encoding = OBJ_ENCODING_EMBSTR; // 设置对象编码
+    o->ptr = sh+1; // 指向数据
+    o->refcount = 1; // 初始化，引用计数设置为1
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
@@ -97,11 +110,13 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
 
     sh->len = len;
     sh->alloc = len;
-    sh->flags = SDS_TYPE_8;
+    sh->flags = SDS_TYPE_8; // 设置字符串类型标志
     if (ptr) {
+	// 字符串不为空，拷贝数据到buf中
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
     } else {
+	// 字符串为空
         memset(sh->buf,0,len+1);
     }
     return o;
@@ -113,6 +128,11 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  *
  * The current limit of 39 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
+/*
+ * 创建一个字符串对象
+ * 如果字符串长度小于OBJ_ENCODING_EMBSTR_SIZE_LIMIT，使用EMBSTR编码
+ * 否则使用RAW动态字符串编码
+ */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
@@ -121,17 +141,23 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
+/*
+ * 传入一个long long类型整数，为其创建一个字符串对象
+ */
 robj *createStringObjectFromLongLong(long long value) {
     robj *o;
     if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
+	/* 如果值是在共享对象值的范围内，增加共享对象的引用计数值，然后使redis对象指向该值的共享对象 */
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
         if (value >= LONG_MIN && value <= LONG_MAX) {
+	    /* 如果值在long范围内，创建字符串类型对象，设置编码为OBJ_ENCODING_INT，值为整数 */
             o = createObject(OBJ_STRING, NULL);
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*)((long)value);
         } else {
+	    /* 否则，创建sds字符串类型对象，编码为OBJ_ENCODING_RAW */
             o = createObject(OBJ_STRING,sdsfromlonglong(value));
         }
     }
@@ -142,6 +168,9 @@ robj *createStringObjectFromLongLong(long long value) {
  * it does not use exponential format and trims trailing zeroes at the end,
  * however this results in loss of precision. Otherwise exp format is used
  * and the output of snprintf() is not modified.
+ * 为浮点数创建一个字符串对象
+ * 如果humanfriendly不为0，那么转换后不会使用指数法表示，以及删去字符串尾部的0字符
+ * 但是返回的结果可能会丢失精度
  *
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
