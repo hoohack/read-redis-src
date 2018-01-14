@@ -534,11 +534,11 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
          * back into a string are exactly the same as what the user typed.) */
 	/*
 	 * 使用17位精度保存数据
-	 * 128位表示的浮点数，在四舍五入的大部分小数
+	 * 128位表示的浮点数，在四舍五入后大部分小数的精度都可以被完整的保留，在转回字符串的时候也不会失去精度
 	 */
         l = snprintf(buf,len,"%.17Lf", value);
         if (l+1 > len) return 0; /* No room. */
-        /* Now remove trailing zeroes after the '.' */
+	/* 移除小数点后面尾部的0 */
         if (strchr(buf,'.') != NULL) {
             char *p = buf+l-1;
             while(*p == '0') {
@@ -548,6 +548,7 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
             if (*p == '.') l--;
         }
     } else {
+	/* %g 使用科学计数法 */
         l = snprintf(buf,len,"%.17Lg", value);
 	/* l+1大于buf长度，没有足够空间存储 */
         if (l+1 > len) return 0; /* No room. */
