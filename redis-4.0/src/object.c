@@ -64,6 +64,7 @@ robj *createObject(int type, void *ptr) {
  * and will not touch the object. This way it is free to access shared
  * objects such as small integers from different threads without any
  * mutex.
+ * 设置对象的引用值为OBJ_SHARED_REFCOUNT，使对象可共享
  *
  * A common patter to create shared objects:
  *
@@ -181,17 +182,22 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
 
 /* Duplicate a string object, with the guarantee that the returned object
  * has the same encoding as the original one.
+ * 复制一个字符串对象，保证返回的对象与原字符串有一样的编码
  *
  * This function also guarantees that duplicating a small integere object
  * (or a string object that contains a representation of a small integer)
  * will always result in a fresh object that is unshared (refcount == 1).
+ * 如果复制的是一个小整数的对象，会返回一个全新的非共享的字符串对象
  *
- * The resulting object always has refcount set to 1. */
+ * The resulting object always has refcount set to 1. 
+ * 返回对象的引用值是1
+ */
 robj *dupStringObject(const robj *o) {
     robj *d;
 
     serverAssert(o->type == OBJ_STRING);
 
+    /* 根据原字符串对象的编码创建对象 */
     switch(o->encoding) {
     case OBJ_ENCODING_RAW:
         return createRawStringObject(o->ptr,sdslen(o->ptr));
@@ -208,6 +214,7 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
+/* 创建一个快速链表对象 */
 robj *createQuicklistObject(void) {
     quicklist *l = quicklistCreate();
     robj *o = createObject(OBJ_LIST,l);
@@ -215,6 +222,7 @@ robj *createQuicklistObject(void) {
     return o;
 }
 
+/* 创建一个压缩链表对象 */
 robj *createZiplistObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(OBJ_LIST,zl);
@@ -222,6 +230,7 @@ robj *createZiplistObject(void) {
     return o;
 }
 
+/* 创建一个集合对象 */
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(OBJ_SET,d);
@@ -229,6 +238,7 @@ robj *createSetObject(void) {
     return o;
 }
 
+/* 创建一个整数集合对象 */
 robj *createIntsetObject(void) {
     intset *is = intsetNew();
     robj *o = createObject(OBJ_SET,is);
@@ -236,6 +246,7 @@ robj *createIntsetObject(void) {
     return o;
 }
 
+/* 创建一个哈希对象 */
 robj *createHashObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(OBJ_HASH, zl);
@@ -243,6 +254,7 @@ robj *createHashObject(void) {
     return o;
 }
 
+/* 创建一个有序集合对象 */
 robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
@@ -254,6 +266,7 @@ robj *createZsetObject(void) {
     return o;
 }
 
+/* 创建一个压缩表对象 */
 robj *createZsetZiplistObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(OBJ_ZSET,zl);
@@ -268,6 +281,10 @@ robj *createModuleObject(moduleType *mt, void *value) {
     return createObject(OBJ_MODULE,mv);
 }
 
+/* 
+ * 释放对象空间系列函数
+ * ---begin---
+ */
 void freeStringObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
         sdsfree(o->ptr);
@@ -331,11 +348,23 @@ void freeModuleObject(robj *o) {
     mv->type->free(mv->value);
     zfree(mv);
 }
+/* 
+ * 释放对象空间系列函数
+ * ---end---
+ */
 
+/* 
+ * 增加对象的引用值
+ * 如果等于最大引用，不可再被引用了
+ */
 void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
+/* 
+ * 对象的引用值减1
+ * 如果对象当前引用值是1，根据对象的类型调用相应的释放对象函数
+ */
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         switch(o->type) {
@@ -357,6 +386,9 @@ void decrRefCount(robj *o) {
 /* This variant of decrRefCount() gets its argument as void, and is useful
  * as free method in data structures that expect a 'void free_object(void*)'
  * prototype for the free method. */
+/*
+ * 这是decrRefCount函数的变形，传入的参数是一个空指针，适合对传入各种类型的对象进行减少引用的操作
+ */
 void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
@@ -366,6 +398,9 @@ void decrRefCountVoid(void *o) {
  * the ref count of the received object. Example:
  *
  *    functionThatWillIncrementRefCount(resetRefCount(CreateObject(...)));
+ *
+ * 函数在没有释放对象的情况下重置refcount为0
+ * 在传入一个新的对象到一个会增加其引用计数的函数时，此函数非常有用
  *
  * Otherwise you need to resort to the less elegant pattern:
  *
@@ -378,6 +413,9 @@ robj *resetRefCount(robj *obj) {
     return obj;
 }
 
+/*
+ * 检查对象o是否为类型type
+ */
 int checkType(client *c, robj *o, int type) {
     if (o->type != type) {
         addReply(c,shared.wrongtypeerr);
@@ -386,10 +424,18 @@ int checkType(client *c, robj *o, int type) {
     return 0;
 }
 
+/*
+ * 检查sds字符串是否可以用long long类型表示
+ */
 int isSdsRepresentableAsLongLong(sds s, long long *llval) {
     return string2ll(s,sdslen(s),llval) ? C_OK : C_ERR;
 }
 
+/*
+ * 检查对象的值是否可以使用long long类型表示
+ * 对象必须是字符串类型
+ * 如果是整数编码，直接转换值保存到llval作为返回，否则，调用isSdsRepresentableAsLongLong函数检查
+ */
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if (o->encoding == OBJ_ENCODING_INT) {
