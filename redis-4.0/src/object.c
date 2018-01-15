@@ -65,6 +65,7 @@ robj *createObject(int type, void *ptr) {
  * objects such as small integers from different threads without any
  * mutex.
  * 设置对象的引用值为OBJ_SHARED_REFCOUNT，使对象可共享
+ * incrRefCount 和 decrRefCount函数会检查这个特殊的引用值，如果是此类共享对象，不会修改它的引用值
  *
  * A common patter to create shared objects:
  *
@@ -355,7 +356,7 @@ void freeModuleObject(robj *o) {
 
 /* 
  * 增加对象的引用值
- * 如果等于最大引用，不可再被引用了
+ * OBJ_SHARED_REFCOUNT 是共享对象的引用值，如果是此类共享对象，就不修改它
  */
 void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
@@ -364,6 +365,7 @@ void incrRefCount(robj *o) {
 /* 
  * 对象的引用值减1
  * 如果对象当前引用值是1，根据对象的类型调用相应的释放对象函数
+ * OBJ_SHARED_REFCOUNT 是共享对象的引用值，如果是此类共享对象，就不修改它
  */
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
