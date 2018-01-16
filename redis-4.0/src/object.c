@@ -66,6 +66,7 @@ robj *createObject(int type, void *ptr) {
  * mutex.
  * 设置对象的引用值为OBJ_SHARED_REFCOUNT，使对象可共享
  * incrRefCount 和 decrRefCount函数会检查这个特殊的引用值，如果是此类共享对象，不会修改它的引用值
+ * 这样一来，就可以在多个线程中不需要互斥随意地访问小整数这类的共享对象
  *
  * A common patter to create shared objects:
  *
@@ -448,7 +449,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     }
 }
 
-/* Try to encode a string object in order to save space */
+/* 尝试对一个字符串对象编码 节省空间 */
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
@@ -458,6 +459,9 @@ robj *tryObjectEncoding(robj *o) {
      * in this function. Other types use encoded memory efficient
      * representations but are handled by the commands implementing
      * the type. */
+    /*
+     * 校验，只会对字符串对象进行编码
+     */
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
 
     /* We try some specialized encoding only for objects that are
@@ -468,11 +472,18 @@ robj *tryObjectEncoding(robj *o) {
     /* It's not safe to encode shared objects: shared objects can be shared
      * everywhere in the "object space" of Redis and may end in places where
      * they are not handled. We handle them only as values in the keyspace. */
+    /*
+     * 只对非共享对象编码
+     */
      if (o->refcount > 1) return o;
 
     /* Check if we can represent this string as a long integer.
      * Note that we are sure that a string larger than 20 chars is not
      * representable as a 32 nor 64 bit integer. */
+    /*
+     * 检查是否可以使用整数表示字符串
+     * 需要注意的是，int32或int64能表示的最大整数长度是20为，因此超过20为字符的数字不可以转换
+     */
     len = sdslen(s);
     if (len <= 20 && string2l(s,len,&value)) {
         /* This object is encodable as a long. Try to use a shared object.
@@ -499,6 +510,10 @@ robj *tryObjectEncoding(robj *o) {
      * try the EMBSTR encoding which is more efficient.
      * In this representation the object and the SDS string are allocated
      * in the same chunk of memory to save space and cache misses. */
+    /*
+     * 如果字符串长度比较小，但仍使用sds编码，为了更高效，尝试使用EMBSTR编码字符串
+     * 
+     */
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT) {
         robj *emb;
 
@@ -517,6 +532,9 @@ robj *tryObjectEncoding(robj *o) {
      * We do that only for relatively large strings as this branch
      * is only entered if the length of the string is greater than
      * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
+    /* 对象编码失败
+     * 最后尝试删除多于的空间
+     */
     if (o->encoding == OBJ_ENCODING_RAW &&
         sdsavail(s) > len/10)
     {
