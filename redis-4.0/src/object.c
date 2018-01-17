@@ -547,6 +547,10 @@ robj *tryObjectEncoding(robj *o) {
 
 /* Get a decoded version of an encoded object (returned as a new object).
  * If the object is already raw-encoded just increment the ref count. */
+/*
+ * 获取解码版本的对象(RAW编码)，返回的是一个新对象
+ * 如果对象已经是raw编码的，直接增加它的引用计数然后返回
+ */
 robj *getDecodedObject(robj *o) {
     robj *dec;
 
@@ -570,8 +574,12 @@ robj *getDecodedObject(robj *o) {
  * use ll2string() to get a string representation of the numbers on the stack
  * and compare the strings, it's much faster than calling getDecodedObject().
  *
+ * 根据flags值，决定通过strcmp或者strcoll函数比较两个字符串对象
+ * 注意，如果对象是整数编码的，会调用ll2string函数得到字符串版本的数字然后进行比较，这比调用getDecodedObject更快
  * Important note: when REDIS_COMPARE_BINARY is used a binary-safe comparison
- * is used. */
+ * is used.
+ * 需要特别注意的是，如果使用了REDIS_COMPARE_BINARY编码，会以二进制安全方式进行比较
+ */
 
 #define REDIS_COMPARE_BINARY (1<<0)
 #define REDIS_COMPARE_COLL (1<<1)
@@ -582,6 +590,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     size_t alen, blen, minlen;
 
     if (a == b) return 0;
+    /* 通过直接访问对象或者ll2string得到待比较数据 */
     if (sdsEncodedObject(a)) {
         astr = a->ptr;
         alen = sdslen(astr);
@@ -597,8 +606,10 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
         bstr = bufb;
     }
     if (flags & REDIS_COMPARE_COLL) {
+	// 根据本地编码比较
         return strcoll(astr,bstr);
     } else {
+	// 二进制安全方式比较
         int cmp;
 
         minlen = (alen < blen) ? alen : blen;
@@ -608,12 +619,12 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     }
 }
 
-/* Wrapper for compareStringObjectsWithFlags() using binary comparison. */
+/* 使用二进制安全方式比较的封装 */
 int compareStringObjects(robj *a, robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_BINARY);
 }
 
-/* Wrapper for compareStringObjectsWithFlags() using collation. */
+/* 使用排序规则比较的封装 */
 int collateStringObjects(robj *a, robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_COLL);
 }
@@ -621,7 +632,10 @@ int collateStringObjects(robj *a, robj *b) {
 /* Equal string objects return 1 if the two objects are the same from the
  * point of view of a string comparison, otherwise 0 is returned. Note that
  * this function is faster then checking for (compareStringObject(a,b) == 0)
- * because it can perform some more optimization. */
+ * because it can perform some more optimization. 
+ * 判断两个字符串对象是否相等，如果相等返回1，否则返回0
+ * 函数做了相应的优化，如果两个对象都是整数编码的，直接相等的比较，比compareStringObject(a,b) == 0的比较要快
+ */
 int equalStringObjects(robj *a, robj *b) {
     if (a->encoding == OBJ_ENCODING_INT &&
         b->encoding == OBJ_ENCODING_INT){
@@ -633,6 +647,11 @@ int equalStringObjects(robj *a, robj *b) {
     }
 }
 
+/*
+ * 返回字符串对象长度
+ * 如果是sds编码，调用sdslen直接返回
+ * 否则调用sdigits10
+ */
 size_t stringObjectLen(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if (sdsEncodedObject(o)) {
@@ -642,6 +661,9 @@ size_t stringObjectLen(robj *o) {
     }
 }
 
+/*
+ * 获取对象的double值
+ */
 int getDoubleFromObject(const robj *o, double *target) {
     double value;
     char *eptr;
@@ -651,6 +673,7 @@ int getDoubleFromObject(const robj *o, double *target) {
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
+	    /* 字符串，先尝试转成double类型 */
             errno = 0;
             value = strtod(o->ptr, &eptr);
             if (isspace(((const char*)o->ptr)[0]) ||
@@ -670,6 +693,10 @@ int getDoubleFromObject(const robj *o, double *target) {
     return C_OK;
 }
 
+/*
+ * 调用getDoubleFromObject函数尝试从对象中获取double值
+ * 如果失败，返回错误的msg给上层
+ */
 int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg) {
     double value;
     if (getDoubleFromObject(o, &value) != C_OK) {
@@ -684,6 +711,9 @@ int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *m
     return C_OK;
 }
 
+/*
+ * 获取对象的long double值
+ */
 int getLongDoubleFromObject(robj *o, long double *target) {
     long double value;
     char *eptr;
@@ -692,6 +722,7 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+	/* 字符串，先尝试转成long double类型 */
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtold(o->ptr, &eptr);
@@ -708,6 +739,10 @@ int getLongDoubleFromObject(robj *o, long double *target) {
     return C_OK;
 }
 
+/*
+ * 调用getLongDoubleFromObject函数尝试从对象中获取double值
+ * 如果失败，返回错误的msg给上层
+ */
 int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg) {
     long double value;
     if (getLongDoubleFromObject(o, &value) != C_OK) {
@@ -722,6 +757,9 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, cons
     return C_OK;
 }
 
+/*
+ * 尝试获取对象的long long值
+ */
 int getLongLongFromObject(robj *o, long long *target) {
     long long value;
 
@@ -730,6 +768,7 @@ int getLongLongFromObject(robj *o, long long *target) {
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
+	    /* 字符串类型，调用string2ll尝试转成long long整数 */
             if (string2ll(o->ptr,sdslen(o->ptr),&value) == 0) return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
@@ -741,6 +780,10 @@ int getLongLongFromObject(robj *o, long long *target) {
     return C_OK;
 }
 
+/*
+ * 调用getLongLongFromObject函数尝试获取对象的long long值
+ * 失败返回msg信息给上层
+ */
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
     long long value;
     if (getLongLongFromObject(o, &value) != C_OK) {
@@ -755,6 +798,10 @@ int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const ch
     return C_OK;
 }
 
+/*
+ * 调用getLongFromObject函数尝试获取对象的long值
+ * 失败返回msg信息给上层
+ */
 int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
     long long value;
 
@@ -771,6 +818,9 @@ int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) 
     return C_OK;
 }
 
+/*
+ * 返回编码的字符串表示形式
+ */
 char *strEncoding(int encoding) {
     switch(encoding) {
     case OBJ_ENCODING_RAW: return "raw";
