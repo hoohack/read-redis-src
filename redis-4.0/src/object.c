@@ -1138,13 +1138,23 @@ sds getMemoryDoctorReport(void) {
 
 /* This is a helper function for the OBJECT command. We need to lookup keys
  * without any modification of LRU or other parameters. */
+/*
+ * object命令的辅助函数
+ * 查找redis某个key的对象，如果找不到，返回NULL 
+ */
 robj *objectCommandLookup(client *c, robj *key) {
     dictEntry *de;
 
+    /*
+     * 在redis的db（使用dict数据结构）中查找key
+     */
     if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
     return (robj*) dictGetVal(de);
 }
 
+/*
+ * 查找redis某个key的对象，如果找不到，显示错误信息
+ */
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
     robj *o = objectCommandLookup(c,key);
 
@@ -1154,18 +1164,27 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
 
 /* Object command allows to inspect the internals of an Redis Object.
  * Usage: OBJECT <refcount|encoding|idletime> <key> */
+/*
+ * object 命令的实现 查看所使用的redis内部对象
+ */
 void objectCommand(client *c) {
     robj *o;
 
     if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
+	/* 如果第二个参数为refcount，返回redis对象的引用值 */
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyLongLong(c,o->refcount);
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
+	/* 如果第二个参数为encoding，返回redis对象使用的编码 */
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyBulkCString(c,strEncoding(o->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
+	/* 
+	 * 如果第二个参数为idletime，返回redis对象最近空闲的时间（没有read/write请求）
+	 * 只在server.maxmemory_policy设置为LRU 或者 noeviction时此参数才生效
+	 */
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
@@ -1174,6 +1193,10 @@ void objectCommand(client *c) {
         }
         addReplyLongLong(c,estimateObjectIdleTime(o)/1000);
     } else if (!strcasecmp(c->argv[1]->ptr,"freq") && c->argc == 3) {
+	/* 
+	 * 如果第二个参数为freq，返回给定键值的redis对象被访问的频率计数
+	 * 只在server.maxmemory_policy设置为LFU策略时生效
+	 */
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
@@ -1182,6 +1205,7 @@ void objectCommand(client *c) {
         }
         addReplyLongLong(c,o->lru&255);
     } else {
+	/* 语法错误，返回错误提示 */
         addReplyError(c,"Syntax error. Try OBJECT (refcount|encoding|idletime|freq)");
     }
 }
