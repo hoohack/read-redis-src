@@ -464,9 +464,16 @@ void existsCommand(client *c) {
     addReplyLongLong(c,count);
 }
 
+/*
+ * SELECT 命令实现
+ * 选择数据库
+ */
 void selectCommand(client *c) {
     long id;
 
+    /*
+     * 进行选择之前，检查数据库ID是否正确、当前数据库是否允许执行select命令、ID是否超出限制
+     */
     if (getLongFromObjectOrReply(c, c->argv[1], &id,
         "invalid DB index") != C_OK)
         return;
