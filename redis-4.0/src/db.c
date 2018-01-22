@@ -133,9 +133,12 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
 
 /* Lookup a key for write operations, and as a side effect, if needed, expires
  * the key if its TTL is reached.
+ * 为写操作查询键是否存在，另外，如果键的存活时间TTL为0，将键设为过期
  *
  * Returns the linked value object if the key exists or NULL if the key
- * does not exist in the specified DB. */
+ * does not exist in the specified DB.
+ * 如果key存在数据库中，返回保存对应key的对象，否则返回NULL
+ */
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     expireIfNeeded(db,key);
     return lookupKey(db,key,LOOKUP_NONE);
@@ -187,21 +190,32 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
 
 /* High level Set operation. This function can be used in order to set
  * a key, whatever it was existing or not, to a new object.
+ * 较高层次的设置操作
+ * 这个函数可用在设置一个键值到一个新对象，不管这个对象是否存在
  *
  * 1) The ref count of the value object is incremented.
  * 2) clients WATCHing for the destination key notified.
  * 3) The expire time of the key is reset (the key is made persistent).
+ * 对象的引用计数会加一
+ * 监听键的客户端会收到键已被修改的通知
+ * 键的过期时间会重置，即不会过期
  *
- * All the new keys in the database should be craeted via this interface. */
+ * All the new keys in the database should be craeted via this interface. 
+ * 数据库里面的所有key都需要通过这个接口来创建
+ */
 void setKey(redisDb *db, robj *key, robj *val) {
+    /*
+     * 如果key不在数据库里，新建
+     * 否则，用新值覆盖
+     */
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
     } else {
         dbOverwrite(db,key,val);
     }
-    incrRefCount(val);
-    removeExpire(db,key);
-    signalModifiedKey(db,key);
+    incrRefCount(val); // 增加值的引用计数
+    removeExpire(db,key); // 重置键在数据库里的过期时间
+    signalModifiedKey(db,key); // 发送修改键的通知
 }
 
 int dbExists(redisDb *db, robj *key) {
@@ -1054,15 +1068,20 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 
 /* Return the expire time of the specified key, or -1 if no expire
  * is associated with this key (i.e. the key is non volatile) */
+/*
+ * 返回指定key的过期时间
+ * 如果key没有设置过期时间，返回-1
+ */
 long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
-    /* No expire? return ASAP */
+    /* 如果key没有设置过期时间，马上返回 */
     if (dictSize(db->expires) == 0 ||
        (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
+    /* 安全校验步骤，上面只在过期的字典中找指定的key，但是也要检查key在数据库的主字典中也应该存在 */
     serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
