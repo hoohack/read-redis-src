@@ -158,11 +158,15 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 
 /* Add the key to the DB. It's up to the caller to increment the reference
  * counter of the value if needed.
+ * 添加一个key到数据库
+ * 调用者来决定是否增加值的引用计数
  *
- * The program is aborted if the key already exists. */
+ * The program is aborted if the key already exists.
+ * 如果key已经存在，则函数终止
+ */
 void dbAdd(redisDb *db, robj *key, robj *val) {
-    sds copy = sdsdup(key->ptr);
-    int retval = dictAdd(db->dict, copy, val);
+    sds copy = sdsdup(key->ptr); //  复制一份字符串
+    int retval = dictAdd(db->dict, copy, val); // 添加到dict
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
@@ -172,12 +176,16 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 /* Overwrite an existing key with a new value. Incrementing the reference
  * count of the new value is up to the caller.
  * This function does not modify the expire time of the existing key.
+ * 用新值去覆盖key当前的值
+ * 函数不会修改已存在key的过期时间
  *
- * The program is aborted if the key was not already present. */
+ * The program is aborted if the key was not already present.
+ * 如果key不存在，函数会终止执行
+ */
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
-    serverAssertWithInfo(NULL,key,de != NULL);
+    serverAssertWithInfo(NULL,key,de != NULL); // 找不到key，函数终止
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         robj *old = dictGetVal(de);
         int saved_lru = old->lru;
