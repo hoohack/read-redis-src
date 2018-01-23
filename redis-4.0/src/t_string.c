@@ -198,12 +198,17 @@ void psetexCommand(client *c) {
     setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
+/*
+ * get命令的"通用"实现
+ */
 int getGenericCommand(client *c) {
     robj *o;
 
+    // 调用lookupKeyReadOrReply函数查找指定key，找不到，返回
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL)
         return C_OK;
 
+    // 如果找到的对象类型不是string返回类型错误
     if (o->type != OBJ_STRING) {
         addReply(c,shared.wrongtypeerr);
         return C_ERR;
@@ -213,70 +218,93 @@ int getGenericCommand(client *c) {
     }
 }
 
+/*
+ * get命令
+ * 调用getGenericCommand函数实现具体操作
+ */
 void getCommand(client *c) {
     getGenericCommand(c);
 }
 
+/*
+ * getset命令实现
+ */
 void getsetCommand(client *c) {
+    // 先get key
     if (getGenericCommand(c) == C_ERR) return;
+    // 对新值进行编码
     c->argv[2] = tryObjectEncoding(c->argv[2]);
+    // 设置新值到key中
     setKey(c->db,c->argv[1],c->argv[2]);
+    // 通知监听了key的数据库，key执行了set命令
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 }
 
+/*
+ * setrange命令实现
+ */
 void setrangeCommand(client *c) {
     robj *o;
     long offset;
     sds value = c->argv[3]->ptr;
 
+    /* 读取offset值到offset中 */
     if (getLongFromObjectOrReply(c,c->argv[2],&offset,NULL) != C_OK)
         return;
 
+    /* 非法offset */
     if (offset < 0) {
         addReplyError(c,"offset is out of range");
         return;
     }
 
+    /* 查找key是否存在，并可被写 */
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o == NULL) {
-        /* Return 0 when setting nothing on a non-existing string */
+        /* 如果key对象不存在，且需要设置的value为空，返回0 */
         if (sdslen(value) == 0) {
             addReply(c,shared.czero);
             return;
         }
 
-        /* Return when the resulting string exceeds allowed size */
+        /* 检查value大小是否满足 */
         if (checkStringLength(c,offset+sdslen(value)) != C_OK)
             return;
 
+	// 创建一个新的字符串对象
         o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
+	// 添加键值对到数据库中
         dbAdd(c->db,c->argv[1],o);
     } else {
         size_t olen;
 
-        /* Key exists, check type */
+        /* key存在，检查值类型是否为string，如果不是，返回 */
         if (checkType(c,o,OBJ_STRING))
             return;
 
-        /* Return existing string length when setting nothing */
+        /* 如果设置的value为空，返回当前已存在的字符串的长度 */
         olen = stringObjectLen(o);
         if (sdslen(value) == 0) {
             addReplyLongLong(c,olen);
             return;
         }
 
-        /* Return when the resulting string exceeds allowed size */
+        /* 检查value大小是否满足 */
         if (checkStringLength(c,offset+sdslen(value)) != C_OK)
             return;
 
-        /* Create a copy when the object is shared or encoded. */
+        /* 如果对象是可共享或者可编码为字符串的，创建一份拷贝 */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
 
+    // 如果需要设置的内容是有效的,执行操作
     if (sdslen(value) > 0) {
+	// sdsgrowzero申请更多的空间
         o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
+	// 拷贝值
         memcpy((char*)o->ptr+offset,value,sdslen(value));
+	// 通知数据库执行了setrange操作
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
@@ -285,19 +313,25 @@ void setrangeCommand(client *c) {
     addReplyLongLong(c,sdslen(o->ptr));
 }
 
+/*
+ * getrange命令实现
+*/
 void getrangeCommand(client *c) {
     robj *o;
     long long start, end;
     char *str, llbuf[32];
     size_t strlen;
 
+    /* 检查第二个和第三个参数必须为整数 */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
         return;
     if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
         return;
+    /* 查找key是否存在，且value类型必须为string */
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
 
+    /* 如果对象编码为INT，转为STRING处理 */
     if (o->encoding == OBJ_ENCODING_INT) {
         str = llbuf;
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
@@ -306,7 +340,7 @@ void getrangeCommand(client *c) {
         strlen = sdslen(str);
     }
 
-    /* Convert negative indexes */
+    /* 处理负数的范围值 */
     if (start < 0 && end < 0 && start > end) {
         addReply(c,shared.emptybulk);
         return;
@@ -319,6 +353,10 @@ void getrangeCommand(client *c) {
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
+    /*
+     * 命令生效的前提是end >= 0 且 end < strlen
+     * 如果start > end 或者 strlen == 0 返回空
+     */
     if (start > end || strlen == 0) {
         addReply(c,shared.emptybulk);
     } else {
