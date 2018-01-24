@@ -440,14 +440,19 @@ void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
 
+/*
+ * incr、decr具体的实现
+ */
 void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *o, *new;
 
+    // 检查key和value的类型
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
 
+    // 处理执行后溢出的情况
     oldvalue = value;
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
         (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
@@ -456,6 +461,9 @@ void incrDecrCommand(client *c, long long incr) {
     }
     value += incr;
 
+    /* 
+     * 在long范围内，直接赋值，否则使用longlong创建字符串后再赋值
+     */
     if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
         (value < 0 || value >= OBJ_SHARED_INTEGERS) &&
         value >= LONG_MIN && value <= LONG_MAX)
@@ -478,14 +486,23 @@ void incrDecrCommand(client *c, long long incr) {
     addReply(c,shared.crlf);
 }
 
+/*
+ * incr命令实现
+ */
 void incrCommand(client *c) {
     incrDecrCommand(c,1);
 }
 
+/*
+ * decr命令实现
+ */
 void decrCommand(client *c) {
     incrDecrCommand(c,-1);
 }
 
+/*
+ * incrby命令实现
+ */
 void incrbyCommand(client *c) {
     long long incr;
 
@@ -493,6 +510,9 @@ void incrbyCommand(client *c) {
     incrDecrCommand(c,incr);
 }
 
+/*
+ * decrby命令实现
+ */
 void decrbyCommand(client *c) {
     long long incr;
 
@@ -500,21 +520,27 @@ void decrbyCommand(client *c) {
     incrDecrCommand(c,-incr);
 }
 
+/*
+ * incrbyfloat命令实现
+ */
 void incrbyfloatCommand(client *c) {
     long double incr, value;
     robj *o, *new, *aux;
 
+    // 查找key、获取值
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,OBJ_STRING)) return;
     if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != C_OK ||
         getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != C_OK)
         return;
 
+    // 非法value处理
     value += incr;
     if (isnan(value) || isinf(value)) {
         addReplyError(c,"increment would produce NaN or Infinity");
         return;
     }
+    // 创建字符串对象，写进数据库
     new = createStringObjectFromLongDouble(value,1);
     if (o)
         dbOverwrite(c->db,c->argv[1],new);
@@ -528,35 +554,42 @@ void incrbyfloatCommand(client *c) {
     /* Always replicate INCRBYFLOAT as a SET command with the final value
      * in order to make sure that differences in float precision or formatting
      * will not create differences in replicas or after an AOF restart. */
+    /*
+     * 使用最后的值重新执行一次set命令，保证不会出现不同精度的值
+     */
     aux = createStringObject("SET",3);
     rewriteClientCommandArgument(c,0,aux);
     decrRefCount(aux);
     rewriteClientCommandArgument(c,2,new);
 }
 
+/*
+ * append命令实现
+ */
 void appendCommand(client *c) {
     size_t totlen;
     robj *o, *append;
 
+    // 查找key
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o == NULL) {
-        /* Create the key */
+        /* 创建key value，写进数据库 */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
         dbAdd(c->db,c->argv[1],c->argv[2]);
         incrRefCount(c->argv[2]);
         totlen = stringObjectLen(c->argv[2]);
     } else {
-        /* Key exists, check type */
+        /* 类型必须为string */
         if (checkType(c,o,OBJ_STRING))
             return;
 
-        /* "append" is an argument, so always an sds */
+        /* append 就是要追加的字符串 */
         append = c->argv[2];
         totlen = stringObjectLen(o)+sdslen(append->ptr);
         if (checkStringLength(c,totlen) != C_OK)
             return;
 
-        /* Append the value */
+        /* 执行追加操作 */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
         totlen = sdslen(o->ptr);
@@ -564,11 +597,16 @@ void appendCommand(client *c) {
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
     server.dirty++;
+    // 执行成功返回append后的长度
     addReplyLongLong(c,totlen);
 }
 
+/*
+ * strlen命令实现
+ */
 void strlenCommand(client *c) {
     robj *o;
+    // 查找key并判断类型是否合法，接着调用stringObjectLen直接读取对象的len属性
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
     addReplyLongLong(c,stringObjectLen(o));
