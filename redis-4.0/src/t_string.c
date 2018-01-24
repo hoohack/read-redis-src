@@ -364,10 +364,14 @@ void getrangeCommand(client *c) {
     }
 }
 
+/*
+ * mget 命令实现
+ */
 void mgetCommand(client *c) {
     int j;
 
     addReplyMultiBulkLen(c,c->argc-1);
+    // for 循环，逐个获取
     for (j = 1; j < c->argc; j++) {
         robj *o = lookupKeyRead(c->db,c->argv[j]);
         if (o == NULL) {
@@ -382,16 +386,25 @@ void mgetCommand(client *c) {
     }
 }
 
+/*
+ * mset通用实现
+ */
 void msetGenericCommand(client *c, int nx) {
     int j, busykeys = 0;
 
+    // 参数必须是成对出现的 key1 value1 key2 value2...
     if ((c->argc % 2) == 0) {
         addReplyError(c,"wrong number of arguments for MSET");
         return;
     }
     /* Handle the NX flag. The MSETNX semantic is to return zero and don't
      * set nothing at all if at least one already key exists. */
+    /*
+     * 处理nx标志
+     * msetnx的实现，如果有一个key已经存在，就会直接返回
+     */
     if (nx) {
+	// 检查是否有key已存在
         for (j = 1; j < c->argc; j += 2) {
             if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
                 busykeys++;
@@ -403,6 +416,7 @@ void msetGenericCommand(client *c, int nx) {
         }
     }
 
+    // 逐个设置键值
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
         setKey(c->db,c->argv[j],c->argv[j+1]);
@@ -412,10 +426,16 @@ void msetGenericCommand(client *c, int nx) {
     addReply(c, nx ? shared.cone : shared.ok);
 }
 
+/*
+ * mset命令实现
+ */
 void msetCommand(client *c) {
     msetGenericCommand(c,0);
 }
 
+/*
+ * msetnx命令实现
+ */
 void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
