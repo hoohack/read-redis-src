@@ -35,9 +35,12 @@
 
 /* The function pushes an element to the specified list object 'subject',
  * at head or tail position as specified by 'where'.
+ * 函数增加一个节点到对象subject，根据where参数决定往列表头部还是尾部
  *
  * There is no need for the caller to increment the refcount of 'value' as
- * the function takes care of it if needed. */
+ * the function takes care of it if needed.
+ * 调用方不需要考虑增加value的引用，因为这个函数会去处理
+ */
 void listTypePush(robj *subject, robj *value, int where) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         int pos = (where == LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
@@ -50,10 +53,16 @@ void listTypePush(robj *subject, robj *value, int where) {
     }
 }
 
+/*
+ * 返回以data为内容创建的字符串对象
+ */
 void *listPopSaver(unsigned char *data, unsigned int sz) {
     return createStringObject((char*)data,sz);
 }
 
+/*
+ * 从列表弹出一个节点
+ */
 robj *listTypePop(robj *subject, int where) {
     long long vlong;
     robj *value = NULL;
@@ -71,6 +80,9 @@ robj *listTypePop(robj *subject, int where) {
     return value;
 }
 
+/*
+ * 返回列表节点总数量
+ */
 unsigned long listTypeLength(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistCount(subject->ptr);
@@ -79,7 +91,7 @@ unsigned long listTypeLength(const robj *subject) {
     }
 }
 
-/* Initialize an iterator at the specified index. */
+/* 初始化一个遍历对象 */
 listTypeIterator *listTypeInitIterator(robj *subject, long index,
                                        unsigned char direction) {
     listTypeIterator *li = zmalloc(sizeof(listTypeIterator));
@@ -100,7 +112,7 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
     return li;
 }
 
-/* Clean up the iterator. */
+/* 删除并清空遍历对象 */
 void listTypeReleaseIterator(listTypeIterator *li) {
     zfree(li->iter);
     zfree(li);
@@ -108,7 +120,9 @@ void listTypeReleaseIterator(listTypeIterator *li) {
 
 /* Stores pointer to current the entry in the provided entry structure
  * and advances the position of the iterator. Returns 1 when the current
- * entry is in fact an entry, 0 otherwise. */
+ * entry is in fact an entry, 0 otherwise.
+ * 保存下一个节点到entry
+ */
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
     /* Protect from converting when iterating */
     serverAssert(li->subject->encoding == li->encoding);
@@ -122,7 +136,7 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
     return 0;
 }
 
-/* Return entry or NULL at the current position of the iterator. */
+/* 返回entry的值 */
 robj *listTypeGet(listTypeEntry *entry) {
     robj *value = NULL;
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -138,6 +152,9 @@ robj *listTypeGet(listTypeEntry *entry) {
     return value;
 }
 
+/*
+ * 插入一个值到列表
+ */
 void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         value = getDecodedObject(value);
@@ -156,7 +173,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     }
 }
 
-/* Compare the given object with the entry at the current position. */
+/* 给定对象，与当前entry比较是否相等 */
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
@@ -166,7 +183,7 @@ int listTypeEqual(listTypeEntry *entry, robj *o) {
     }
 }
 
-/* Delete the element pointed to. */
+/* 删除当前指向的节点 */
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelEntry(iter->iter, &entry->entry);
@@ -175,7 +192,7 @@ void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
     }
 }
 
-/* Create a quicklist from a single ziplist */
+/* 转换一个ziplist为quicklist */
 void listTypeConvert(robj *subject, int enc) {
     serverAssertWithInfo(NULL,subject,subject->type==OBJ_LIST);
     serverAssertWithInfo(NULL,subject,subject->encoding==OBJ_ENCODING_ZIPLIST);
