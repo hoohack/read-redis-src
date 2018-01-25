@@ -211,10 +211,16 @@ void listTypeConvert(robj *subject, int enc) {
  * List Commands
  *----------------------------------------------------------------------------*/
 
+/*
+ * push实现
+ */
 void pushGenericCommand(client *c, int where) {
     int j, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
+    /*
+     * 检查错误对象类型
+     */
     if (lobj && lobj->type != OBJ_LIST) {
         addReply(c,shared.wrongtypeerr);
         return;
@@ -222,6 +228,7 @@ void pushGenericCommand(client *c, int where) {
 
     for (j = 2; j < c->argc; j++) {
         if (!lobj) {
+	    // 对象不存在，新建列表对象
             lobj = createQuicklistObject();
             quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
                                 server.list_compress_depth);
@@ -230,10 +237,12 @@ void pushGenericCommand(client *c, int where) {
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
+    // push成功返回push成功的数量
     addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
     if (pushed) {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
+	// 通知数据库
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
@@ -248,10 +257,15 @@ void rpushCommand(client *c) {
     pushGenericCommand(c,LIST_TAIL);
 }
 
+/*
+ * pushx实现
+ * 此类命令仅当key存在才操作
+ */
 void pushxGenericCommand(client *c, int where) {
     int j, pushed = 0;
     robj *subject;
 
+    // 在数据库中查找key，key存在才添加，剩余操作与pushGenericCommand相似
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,OBJ_LIST)) return;
 
@@ -278,6 +292,9 @@ void rpushxCommand(client *c) {
     pushxGenericCommand(c,LIST_TAIL);
 }
 
+/*
+ * linsert命令实现
+ */
 void linsertCommand(client *c) {
     int where;
     robj *subject;
@@ -285,6 +302,7 @@ void linsertCommand(client *c) {
     listTypeEntry entry;
     int inserted = 0;
 
+    // 检查命令合法性以及设置插入节点的方向
     if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
         where = LIST_TAIL;
     } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
@@ -294,12 +312,14 @@ void linsertCommand(client *c) {
         return;
     }
 
+    // key必须存在
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,OBJ_LIST)) return;
 
-    /* Seek pivot from head to tail */
+    /* 找一个哨兵变量，从列表头部开始遍历 */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
     while (listTypeNext(iter,&entry)) {
+	// 找到要插入的节点的前置节点的位置，执行插入操作
         if (listTypeEqual(&entry,c->argv[3])) {
             listTypeInsert(&entry,c->argv[4],where);
             inserted = 1;
@@ -308,6 +328,9 @@ void linsertCommand(client *c) {
     }
     listTypeReleaseIterator(iter);
 
+    /*
+     * 通知数据库，插入成功还是失败
+     */
     if (inserted) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"linsert",
@@ -319,15 +342,22 @@ void linsertCommand(client *c) {
         return;
     }
 
+    // 命令返回操作后列表对象的长度
     addReplyLongLong(c,listTypeLength(subject));
 }
 
+/*
+ * llen命令实现
+ */
 void llenCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     addReplyLongLong(c,listTypeLength(o));
 }
 
+/*
+ * lindex命令实现
+ */
 void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
@@ -340,12 +370,15 @@ void lindexCommand(client *c) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistEntry entry;
         if (quicklistIndex(o->ptr, index, &entry)) {
+	    // 如果是字符串，会设置到value
+	    // 根据entry.value判断用value值创建字符串对象还是通过整型值创建字符串对象
             if (entry.value) {
                 value = createStringObject((char*)entry.value,entry.sz);
             } else {
                 value = createStringObjectFromLongLong(entry.longval);
             }
             addReplyBulk(c,value);
+	    // 及时减去value对象的引用计数
             decrRefCount(value);
         } else {
             addReply(c,shared.nullbulk);
@@ -355,6 +388,9 @@ void lindexCommand(client *c) {
     }
 }
 
+/*
+ * lset命令实现
+ */
 void lsetCommand(client *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
@@ -366,6 +402,7 @@ void lsetCommand(client *c) {
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = o->ptr;
+	// 判断是否为覆盖操作
         int replaced = quicklistReplaceAtIndex(ql, index,
                                                value->ptr, sdslen(value->ptr));
         if (!replaced) {
@@ -381,6 +418,9 @@ void lsetCommand(client *c) {
     }
 }
 
+/*
+ * pop系列命令实现
+ */
 void popGenericCommand(client *c, int where) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
@@ -394,6 +434,7 @@ void popGenericCommand(client *c, int where) {
         addReplyBulk(c,value);
         decrRefCount(value);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
+	// 如果pop之后列表为空，发送del事件通知数据库，并从数据库中删除该key
         if (listTypeLength(o) == 0) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                                 c->argv[1],c->db->id);
