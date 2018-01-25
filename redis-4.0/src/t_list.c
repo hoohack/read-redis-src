@@ -453,10 +453,16 @@ void rpopCommand(client *c) {
     popGenericCommand(c,LIST_TAIL);
 }
 
+/*
+ * lrange命令实现
+ */
 void lrangeCommand(client *c) {
     robj *o;
     long start, end, llen, rangelen;
 
+    /*
+     * 校验参数及key的对象类型
+     */
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
@@ -464,13 +470,19 @@ void lrangeCommand(client *c) {
          || checkType(c,o,OBJ_LIST)) return;
     llen = listTypeLength(o);
 
-    /* convert negative indexes */
+    /*
+     * 转换负数的下标
+     * 如果start+llen小于0，start=0
+     */
     if (start < 0) start = llen+start;
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
 
     /* Invariant: start >= 0, so this test will be true when end < 0.
-     * The range is empty when start > end or start >= length. */
+     * The range is empty when start > end or start >= length.
+     * 经过上面的逻辑，start始终 >= 0，因此，如果end < 0，那么这个if判断就为true
+     * 如果start > end 或者 start >= length，返回空
+     */
     if (start > end || start >= llen) {
         addReply(c,shared.emptymultibulk);
         return;
@@ -483,6 +495,7 @@ void lrangeCommand(client *c) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         listTypeIterator *iter = listTypeInitIterator(o, start, LIST_TAIL);
 
+	// 遍历拿到范围的值
         while(rangelen--) {
             listTypeEntry entry;
             listTypeNext(iter, &entry);
@@ -499,10 +512,14 @@ void lrangeCommand(client *c) {
     }
 }
 
+/*
+ * ltrim命令实现
+ */
 void ltrimCommand(client *c) {
     robj *o;
     long start, end, llen, ltrim, rtrim;
 
+    // 检查下标和key对象类型
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
@@ -510,7 +527,7 @@ void ltrimCommand(client *c) {
         checkType(c,o,OBJ_LIST)) return;
     llen = listTypeLength(o);
 
-    /* convert negative indexes */
+    /* 处理负数的下标 */
     if (start < 0) start = llen+start;
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
@@ -527,7 +544,7 @@ void ltrimCommand(client *c) {
         rtrim = llen-end-1;
     }
 
-    /* Remove list elements to perform the trim */
+    /* 删除范围里的元素 */
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelRange(o->ptr,0,ltrim);
         quicklistDelRange(o->ptr,-rtrim,rtrim);
@@ -536,6 +553,7 @@ void ltrimCommand(client *c) {
     }
 
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
+    // 如果删除后，列表为空，把key对象也删除掉
     if (listTypeLength(o) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
