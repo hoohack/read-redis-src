@@ -563,18 +563,24 @@ void ltrimCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+/*
+ * lrem命令实现
+ */
 void lremCommand(client *c) {
     robj *subject, *obj;
     obj = c->argv[3];
     long toremove;
     long removed = 0;
 
+    // 解析数字参数，需要移除的数量
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != C_OK))
         return;
 
+    // 检查对象类型
     subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
     if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
 
+    // 如果是负数，转为正数，从尾部向头部遍历
     listTypeIterator *li;
     if (toremove < 0) {
         toremove = -toremove;
@@ -583,12 +589,14 @@ void lremCommand(client *c) {
         li = listTypeInitIterator(subject,0,LIST_TAIL);
     }
 
+    // 遍历列表，执行删除操作
     listTypeEntry entry;
     while (listTypeNext(li,&entry)) {
         if (listTypeEqual(&entry,obj)) {
             listTypeDelete(li, &entry);
             server.dirty++;
             removed++;
+	    // 达到删除数量，不需要再遍历，及时退出
             if (toremove && removed == toremove) break;
         }
     }
@@ -599,11 +607,13 @@ void lremCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"lrem",c->argv[1],c->db->id);
     }
 
+    // 删除后列表为空，把key对应的对象也删除
     if (listTypeLength(subject) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
+    // 删除成功，移除成功移除的数量
     addReplyLongLong(c,removed);
 }
 
@@ -624,7 +634,7 @@ void lremCommand(client *c) {
  */
 
 void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
-    /* Create the list if the key does not exist */
+    /* 如果key不存在，新建一个列表对象 */
     if (!dstobj) {
         dstobj = createQuicklistObject();
         quicklistSetOptions(dstobj->ptr, server.list_max_ziplist_size,
@@ -632,17 +642,23 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c->db,dstkey);
+    // 把值推进新列表
     listTypePush(dstobj,value,LIST_HEAD);
     notifyKeyspaceEvent(NOTIFY_LIST,"lpush",dstkey,c->db->id);
-    /* Always send the pushed value to the client. */
+    /* 执行成功，返回成功推进列表的值 */
     addReplyBulk(c,value);
 }
 
+/*
+ * rpoplpush 命令实现
+ */
 void rpoplpushCommand(client *c) {
     robj *sobj, *value;
+    // 确定key存在
     if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,sobj,OBJ_LIST)) return;
 
+    // 确定srclist不为空
     if (listTypeLength(sobj) == 0) {
         /* This may only happen after loading very old RDB files. Recent
          * versions of Redis delete keys of empty lists. */
@@ -652,17 +668,19 @@ void rpoplpushCommand(client *c) {
         robj *touchedkey = c->argv[1];
 
         if (dobj && checkType(c,dobj,OBJ_LIST)) return;
+	// 从tail弹出一个节点
         value = listTypePop(sobj,LIST_TAIL);
         /* We saved touched key, and protect it, since rpoplpushHandlePush
          * may change the client command argument vector (it does not
          * currently). */
         incrRefCount(touchedkey);
+	// 把弹出的值推到destlist
         rpoplpushHandlePush(c,c->argv[2],dobj,value);
 
         /* listTypePop returns an object with its refcount incremented */
         decrRefCount(value);
 
-        /* Delete the source list when it is empty */
+        /* 如果srclist为空了，删除旧的列表 */
         notifyKeyspaceEvent(NOTIFY_LIST,"rpop",touchedkey,c->db->id);
         if (listTypeLength(sobj) == 0) {
             dbDelete(c->db,touchedkey);
