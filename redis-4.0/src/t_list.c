@@ -1062,14 +1062,23 @@ void brpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_TAIL);
 }
 
+/*
+ * brpoplpush命令实现
+ */
 void brpoplpushCommand(client *c) {
     mstime_t timeout;
 
+    // 处理超时参数
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
         != C_OK) return;
 
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
 
+    /*
+     * key不存在
+     * 如果是在事务中，直接返回
+     * 否则阻塞客户端
+     */
     if (key == NULL) {
         if (c->flags & CLIENT_MULTI) {
             /* Blocking against an empty list in a multi state
@@ -1080,6 +1089,7 @@ void brpoplpushCommand(client *c) {
             blockForKeys(c, c->argv + 1, 1, timeout, c->argv[2]);
         }
     } else {
+	// key存在，执行普通的rpoplpush命令
         if (key->type != OBJ_LIST) {
             addReply(c, shared.wrongtypeerr);
         } else {
