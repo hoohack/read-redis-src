@@ -761,7 +761,10 @@ void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *t
 }
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP.
- * You should never call this function directly, but unblockClient() instead. */
+ * You should never call this function directly, but unblockClient() instead.
+ * 为一个等待阻塞操作(比如BLPOP)的客户端释放锁
+ * 函数不是对外的api，只能被unblockClient函数调用
+ */
 void unblockClientWaitingData(client *c) {
     dictEntry *de;
     dictIterator *di;
@@ -769,15 +772,15 @@ void unblockClientWaitingData(client *c) {
 
     serverAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
     di = dictGetIterator(c->bpop.keys);
-    /* The client may wait for multiple keys, so unblock it for every key. */
+    /* 阻塞中的客户端可能对多个key阻塞，对每个key进行取消阻塞操作 */
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
 
-        /* Remove this client from the list of clients waiting for this key. */
+        /* 从阻塞客户端列表中移除当前等待当前key的客户端节点 */
         l = dictFetchValue(c->db->blocking_keys,key);
         serverAssertWithInfo(c,key,l != NULL);
         listDelNode(l,listSearchKey(l,c));
-        /* If the list is empty we need to remove it to avoid wasting memory */
+        /* 如果列表为空了，删除该列表，避免浪费内存 */
         if (listLength(l) == 0)
             dictDelete(c->db->blocking_keys,key);
     }
@@ -796,18 +799,22 @@ void unblockClientWaitingData(client *c) {
  * Note that db->ready_keys is a hash table that allows us to avoid putting
  * the same key again and again in the list in case of multiple pushes
  * made by a script or in the context of MULTI/EXEC.
+ * 如果指定的key有因为等待push操作而被阻塞的客户端，函数会将key保存到server.ready_keys列表中
+ * db->ready_keys 是一个哈希表结构，因此可以在脚本或者事务的操作将同一个key保存到列表也没关系
  *
- * The list will be finally processed by handleClientsBlockedOnLists() */
+ * The list will be finally processed by handleClientsBlockedOnLists()
+ * 这个列表最终会被handleClientsBlockedOnLists函数处理
+ */
 void signalListAsReady(redisDb *db, robj *key) {
     readyList *rl;
 
-    /* No clients blocking for this key? No need to queue it. */
+    /* 没有被指定key阻塞中的客户端，直接返回 */
     if (dictFind(db->blocking_keys,key) == NULL) return;
 
-    /* Key was already signaled? No need to queue it again. */
+    /* key已经被添加到ready_keys列表中，直接返回 */
     if (dictFind(db->ready_keys,key) != NULL) return;
 
-    /* Ok, we need to queue this key into server.ready_keys. */
+    /* 下面操作是添加key到server.ready_keys列表中 */
     rl = zmalloc(sizeof(*rl));
     rl->key = key;
     rl->db = db;
@@ -816,7 +823,9 @@ void signalListAsReady(redisDb *db, robj *key) {
 
     /* We also add the key in the db->ready_keys dictionary in order
      * to avoid adding it multiple times into a list with a simple O(1)
-     * check. */
+     * check.
+     * 同时把key添加到db.ready_keys字典中避免多次添加
+    */
     incrRefCount(key);
     serverAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
 }
@@ -831,21 +840,30 @@ void signalListAsReady(redisDb *db, robj *key) {
  * 3) Propagate the resulting BRPOP, BLPOP and additional LPUSH if any into
  *    the AOF and replication channel.
  *
+ * 本函数是handleClientsBlockedOnLists的辅助函数，它的工作是为一个在指定db中被key阻塞的客户端做如下工作
+ *	1、返回value给客户端
+ *	2、如果dstkey不为空(此时正在执行BRPOPLPUSH)，还会将value推进目标列表中
+ *	3、将可能出现的BRPOP、BLPOP以及LPUSH同步到AOF和复制通道
+ *
  * The argument 'where' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element was popped fron the head (BLPOP) or tail (BRPOP) so that
  * we can propagate the command properly.
+ * where参数的值是LIST_TAIL／LIST_HEAD，表明如果value从head或者tail弹出，可以被正确地传播
  *
  * The function returns C_OK if we are able to serve the client, otherwise
  * C_ERR is returned to signal the caller that the list POP operation
  * should be undone as the client was not served: This only happens for
  * BRPOPLPUSH that fails to push the value to the destination key as it is
- * of the wrong type. */
+ * of the wrong type.
+ * 如果可以正确地服务客户端，函数返回C_OK，否则会将C_ERR作为信号通知给调用者pop操作需要取消
+ *	C_ERR只会在BRPOPLPUSH执行时，遇到错误的目标列表类型，导致函数执行失败返回
+ */
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where)
 {
     robj *argv[3];
 
     if (dstkey == NULL) {
-        /* Propagate the [LR]POP operation. */
+        /* 传播[LR]POP操作 */
         argv[0] = (where == LIST_HEAD) ? shared.lpop :
                                           shared.rpop;
         argv[1] = key;
@@ -882,8 +900,7 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
                 PROPAGATE_AOF|
                 PROPAGATE_REPL);
         } else {
-            /* BRPOPLPUSH failed because of wrong
-             * destination type. */
+            /* BRPOPLPUSH执行失败 */
             return C_ERR;
         }
     }
