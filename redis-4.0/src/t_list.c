@@ -698,24 +698,35 @@ void rpoplpushCommand(client *c) {
  *----------------------------------------------------------------------------*/
 
 /* This is how the current blocking POP works, we use BLPOP as example:
+ * 这是当前阻塞pop的具体实现，使用BLPOP做例子
  * - If the user calls BLPOP and the key exists and contains a non empty list
  *   then LPOP is called instead. So BLPOP is semantically the same as LPOP
  *   if blocking is not required.
+ *   如果调用了BLPOP，key存在且非空，那么就会当作普通的LPOP来实现。如果不需要阻塞，BLPOP跟LPOP是一样的
+ *
  * - If instead BLPOP is called and the key does not exists or the list is
  *   empty we need to block. In order to do so we remove the notification for
  *   new data to read in the client socket (so that we'll not serve new
  *   requests if the blocking request is not served). Also we put the client
  *   in a dictionary (db->blocking_keys) mapping keys to a list of clients
  *   blocking for this keys.
+ *   如果调用了BLPOP之后key不存在或者列表为空，那么就需要执行阻塞操作
+ *   执行阻塞的方法是：从客户端socket中移除key的读事件(这样一来，就不需要对新的请求作出响应)
+ *   另外，还会将客户端放到db->blocking_keys字典中，将客户端阻塞的key映射到列表中
+ *
  * - If a PUSH operation against a key with blocked clients waiting is
  *   performed, we mark this key as "ready", and after the current command,
  *   MULTI/EXEC block, or script, is executed, we serve all the clients waiting
  *   for this list, from the one that blocked first, to the last, accordingly
  *   to the number of elements we have in the ready list.
+ *   如果push命令作用于一个正在阻塞的key是，redis会标记它为“就绪”状态，执行完这个命令，事务或者脚本之后
+ *   根据当前“就绪”列表的元素数量以及先阻塞先服务原则，将列表元素返回给所有阻塞中的客户端
  */
 
 /* Set a client in blocking mode for the specified key, with the specified
- * timeout */
+ * timeout
+ * 设置客户端的某个key为阻塞状态，及阻塞时间
+ */
 void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *target) {
     dictEntry *de;
     list *l;
@@ -727,16 +738,16 @@ void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *t
     if (target != NULL) incrRefCount(target);
 
     for (j = 0; j < numkeys; j++) {
-        /* If the key already exists in the dict ignore it. */
+        /* 如果key以及在阻塞字典中，忽略 */
         if (dictAdd(c->bpop.keys,keys[j],NULL) != DICT_OK) continue;
         incrRefCount(keys[j]);
 
-        /* And in the other "side", to map keys -> clients */
+        /* 如果key不存在，将阻塞key和阻塞客户端关联起来 */
         de = dictFind(c->db->blocking_keys,keys[j]);
         if (de == NULL) {
             int retval;
 
-            /* For every key we take a list of clients blocked for it */
+            /* 对每一个key，用一个链表保存该key阻塞的客户端 */
             l = listCreate();
             retval = dictAdd(c->db->blocking_keys,keys[j],l);
             incrRefCount(keys[j]);
@@ -971,15 +982,20 @@ void handleClientsBlockedOnLists(void) {
 }
 
 /* Blocking RPOP/LPOP */
+/*
+ * RPOP／LPOP的具体实现
+ */
 void blockingPopGenericCommand(client *c, int where) {
     robj *o;
     mstime_t timeout;
     int j;
 
+    /* 拿到timeout参数 */
     if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS)
         != C_OK) return;
 
     for (j = 1; j < c->argc-1; j++) {
+	// 检查key是否存在
         o = lookupKeyWrite(c->db,c->argv[j]);
         if (o != NULL) {
             if (o->type != OBJ_LIST) {
@@ -987,17 +1003,19 @@ void blockingPopGenericCommand(client *c, int where) {
                 return;
             } else {
                 if (listTypeLength(o) != 0) {
-                    /* Non empty list, this is like a non normal [LR]POP. */
+                    /* 列表非空，执行普通的[LR]POP操作. */
                     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
                     robj *value = listTypePop(o,where);
                     serverAssert(value != NULL);
 
+		    // 操作成功，返回弹出的列表key和值
                     addReplyMultiBulkLen(c,2);
                     addReplyBulk(c,c->argv[j]);
                     addReplyBulk(c,value);
                     decrRefCount(value);
                     notifyKeyspaceEvent(NOTIFY_LIST,event,
                                         c->argv[j],c->db->id);
+		    // 如果操作后列表为空，删除key对象
                     if (listTypeLength(o) == 0) {
                         dbDelete(c->db,c->argv[j]);
                         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
@@ -1007,6 +1025,7 @@ void blockingPopGenericCommand(client *c, int where) {
                     server.dirty++;
 
                     /* Replicate it as an [LR]POP instead of B[LR]POP. */
+		    // 复制旧命令为普通的l/rpop 
                     rewriteClientCommandVector(c,2,
                         (where == LIST_HEAD) ? shared.lpop : shared.rpop,
                         c->argv[j]);
@@ -1017,20 +1036,28 @@ void blockingPopGenericCommand(client *c, int where) {
     }
 
     /* If we are inside a MULTI/EXEC and the list is empty the only thing
-     * we can do is treating it as a timeout (even with timeout 0). */
+     * we can do is treating it as a timeout (even with timeout 0).
+     * 如果在事务里面而且列表为空，为了不产生死锁，将其视为超时到达，然后返回
+     */
     if (c->flags & CLIENT_MULTI) {
         addReply(c,shared.nullmultibulk);
         return;
     }
 
-    /* If the list is empty or the key does not exists we must block */
+    /* 如果列表为空或者key不存在，执行阻塞操作 */
     blockForKeys(c, c->argv + 1, c->argc - 2, timeout, NULL);
 }
 
+/*
+ * blpop命令实现
+ */
 void blpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_HEAD);
 }
 
+/*
+ * brpop命令实现
+ */
 void brpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_TAIL);
 }
