@@ -585,14 +585,19 @@ void hashTypeConvert(robj *o, int enc) {
  * Hash type commands
  *----------------------------------------------------------------------------*/
 
+/*
+ * hsetnx 命令实现
+ */
 void hsetnxCommand(client *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,3);
 
+    // field已经存在，返回
     if (hashTypeExists(o, c->argv[2]->ptr)) {
         addReply(c, shared.czero);
     } else {
+	// field不存在，添加
         hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
         signalModifiedKey(c->db,c->argv[1]);
@@ -601,6 +606,10 @@ void hsetnxCommand(client *c) {
     }
 }
 
+/*
+ * hset 命令实现
+ * hmset 也是调用这个方法实现
+ */
 void hsetCommand(client *c) {
     int i, created = 0;
     robj *o;
@@ -630,6 +639,9 @@ void hsetCommand(client *c) {
     server.dirty++;
 }
 
+/*
+ * hincrby 命令实现
+ */
 void hincrbyCommand(client *c) {
     long long value, incr, oldvalue;
     robj *o;
@@ -640,6 +652,7 @@ void hincrbyCommand(client *c) {
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&value) == C_OK) {
+	// 获取值，如果值是字符串，尝试转为数字
         if (vstr) {
             if (string2ll((char*)vstr,vlen,&value) == 0) {
                 addReplyError(c,"hash value is not an integer");
@@ -656,6 +669,7 @@ void hincrbyCommand(client *c) {
         addReplyError(c,"increment or decrement would overflow");
         return;
     }
+    // 将值加了之后，转为字符串，保存
     value += incr;
     new = sdsfromlonglong(value);
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
@@ -665,6 +679,10 @@ void hincrbyCommand(client *c) {
     server.dirty++;
 }
 
+/*
+ * hincrbyfloat 命令实现
+ * 实现与hincrby命令几乎一样，在函数后面会调用HSET保证浮点数精度问题
+ */
 void hincrbyfloatCommand(client *c) {
     long double value, incr;
     long long ll;
@@ -719,6 +737,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
         return;
     }
 
+    // 根据底层不同编码获取field的值
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
@@ -746,21 +765,31 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
     }
 }
 
+/*
+ * hget命令实现
+ */
 void hgetCommand(client *c) {
     robj *o;
 
+    // key不存在，返回空
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
     addHashFieldToReply(c, o, c->argv[2]->ptr);
 }
 
+/*
+ * hmget 命令实现
+ */
 void hmgetCommand(client *c) {
     robj *o;
     int i;
 
     /* Don't abort when the key cannot be found. Non-existing keys are empty
-     * hashes, where HMGET should respond with a series of null bulks. */
+     * hashes, where HMGET should respond with a series of null bulks.
+     * 如果key不存在哈希表中，不马上返回
+     * 因为HMGET命令应该返回多个NULL
+     */
     o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && o->type != OBJ_HASH) {
         addReply(c, shared.wrongtypeerr);
@@ -773,6 +802,9 @@ void hmgetCommand(client *c) {
     }
 }
 
+/*
+ * hdel 命令实现
+ */
 void hdelCommand(client *c) {
     robj *o;
     int j, deleted = 0, keyremoved = 0;
@@ -780,16 +812,18 @@ void hdelCommand(client *c) {
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
+    // 逐个删除哈希表的field，如果删除后哈希表为空，删除key
     for (j = 2; j < c->argc; j++) {
         if (hashTypeDelete(o,c->argv[j]->ptr)) {
             deleted++;
             if (hashTypeLength(o) == 0) {
                 dbDelete(c->db,c->argv[1]);
-                keyremoved = 1;
+                keyremoved = 1; // 标记key被删除了
                 break;
             }
         }
     }
+    // 通知数据库执行了什么命令
     if (deleted) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
@@ -801,23 +835,35 @@ void hdelCommand(client *c) {
     addReplyLongLong(c,deleted);
 }
 
+/*
+ * hlen 命令实现
+ */
 void hlenCommand(client *c) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
+    // 返回哈希表长度
     addReplyLongLong(c,hashTypeLength(o));
 }
 
+/*
+ * hstrlen 命令实现
+ */
 void hstrlenCommand(client *c) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
+    // 返回field的值的长度
     addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]->ptr));
 }
 
+/*
+ * 根据底层实现不同编码，获取field或者value
+ * 把获取到的内容逐个回显
+ */
 static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what) {
     if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
@@ -837,6 +883,9 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
     }
 }
 
+/*
+ * hgetall 系列命令实现
+ */
 void genericHgetallCommand(client *c, int flags) {
     robj *o;
     hashTypeIterator *hi;
@@ -846,19 +895,27 @@ void genericHgetallCommand(client *c, int flags) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
         || checkType(c,o,OBJ_HASH)) return;
 
+    /*
+     * key multiplier++
+     * value multiplier++
+     * key && value multiplier+2
+     */
     if (flags & OBJ_HASH_KEY) multiplier++;
     if (flags & OBJ_HASH_VALUE) multiplier++;
 
+    // 返回的长度
     length = hashTypeLength(o) * multiplier;
     addReplyMultiBulkLen(c, length);
 
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != C_ERR) {
         if (flags & OBJ_HASH_KEY) {
+	    // 遍历key
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
             count++;
         }
         if (flags & OBJ_HASH_VALUE) {
+	    // 遍历value
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
             count++;
         }
@@ -868,6 +925,12 @@ void genericHgetallCommand(client *c, int flags) {
     serverAssert(count == length);
 }
 
+/*
+ * hkeys
+ * hvals
+ * hgetall
+ * 三个命令都会调用genericHgetallCommand函数实现，根据第二个参数不同选择不同执行函数
+ */
 void hkeysCommand(client *c) {
     genericHgetallCommand(c,OBJ_HASH_KEY);
 }
@@ -880,6 +943,9 @@ void hgetallCommand(client *c) {
     genericHgetallCommand(c,OBJ_HASH_KEY|OBJ_HASH_VALUE);
 }
 
+/*
+ * hexist 命令实现
+ */
 void hexistsCommand(client *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
@@ -888,6 +954,9 @@ void hexistsCommand(client *c) {
     addReply(c, hashTypeExists(o,c->argv[2]->ptr) ? shared.cone : shared.czero);
 }
 
+/*
+ * hscan 命令实现
+ */
 void hscanCommand(client *c) {
     robj *o;
     unsigned long cursor;
