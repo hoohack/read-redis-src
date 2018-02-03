@@ -49,12 +49,16 @@ robj *setTypeCreate(sds value) {
 }
 
 /* Add the specified value into a set.
+ * 添加值到集合中
  *
  * If the value was already member of the set, nothing is done and 0 is
- * returned, otherwise the new element is added and 1 is returned. */
+ * returned, otherwise the new element is added and 1 is returned.
+ * 如果值已经是集合中的成员，什么都不做并返回0，否则新增元素并返回1
+ */
 int setTypeAdd(robj *subject, sds value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
+	// 哈希表编码处理
         dict *ht = subject->ptr;
         dictEntry *de = dictAddRaw(ht,value,NULL);
         if (de) {
@@ -67,14 +71,15 @@ int setTypeAdd(robj *subject, sds value) {
             uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
             if (success) {
-                /* Convert to regular set when the intset contains
-                 * too many entries. */
+                /* 
+		 * 如果intset包含太多节点，转换为哈希表编码
+		 */
                 if (intsetLen(subject->ptr) > server.set_max_intset_entries)
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
             }
         } else {
-            /* Failed to get integer from object, convert to regular set. */
+            /* 如果value不能转换为整数，那就不能使用intset编码，转换为哈希表编码 */
             setTypeConvert(subject,OBJ_ENCODING_HT);
 
             /* The set *was* an intset and this value is not integer
@@ -88,10 +93,14 @@ int setTypeAdd(robj *subject, sds value) {
     return 0;
 }
 
+/*
+ * 从集合中删除元素
+ */
 int setTypeRemove(robj *setobj, sds value) {
     long long llval;
     if (setobj->encoding == OBJ_ENCODING_HT) {
         if (dictDelete(setobj->ptr,value) == DICT_OK) {
+	    // 调整哈希表大小
             if (htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
             return 1;
         }
@@ -107,6 +116,9 @@ int setTypeRemove(robj *setobj, sds value) {
     return 0;
 }
 
+/*
+ * 判断value是否集合的成员
+ */
 int setTypeIsMember(robj *subject, sds value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
@@ -222,6 +234,9 @@ int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele) {
     return setobj->encoding;
 }
 
+/*
+ * 返回集合大小
+ */
 unsigned long setTypeSize(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_HT) {
         return dictSize((const dict*)subject->ptr);
@@ -296,19 +311,24 @@ void saddCommand(client *c) {
     addReplyLongLong(c,added);
 }
 
+/*
+ * srem 命令实现
+ */
 void sremCommand(client *c) {
     robj *set;
     int j, deleted = 0, keyremoved = 0;
 
+    // 检查key存在且对象为集合类型
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
 
+    // 逐个删除，如果删除元素后集合为空，则从数据库删除key
     for (j = 2; j < c->argc; j++) {
         if (setTypeRemove(set,c->argv[j]->ptr)) {
             deleted++;
             if (setTypeSize(set) == 0) {
                 dbDelete(c->db,c->argv[1]);
-                keyremoved = 1;
+                keyremoved = 1; // 标记从数据库中删除key
                 break;
             }
         }
@@ -324,44 +344,47 @@ void sremCommand(client *c) {
     addReplyLongLong(c,deleted);
 }
 
+/*
+ * smove 命令实现
+ * 将一个集合(src)的一个元素移动到另一个集合(dest)
+ */
 void smoveCommand(client *c) {
     robj *srcset, *dstset, *ele;
     srcset = lookupKeyWrite(c->db,c->argv[1]);
     dstset = lookupKeyWrite(c->db,c->argv[2]);
-    ele = c->argv[3];
+    ele = c->argv[3]; // 只操作集合的一个成员
 
-    /* If the source key does not exist return 0 */
+    /* 源key不存在，返回0 */
     if (srcset == NULL) {
         addReply(c,shared.czero);
         return;
     }
 
-    /* If the source key has the wrong type, or the destination key
-     * is set and has the wrong type, return with an error. */
+    /* 源key类型不对或者目标key不是一个集合，返回错误 */
     if (checkType(c,srcset,OBJ_SET) ||
         (dstset && checkType(c,dstset,OBJ_SET))) return;
 
-    /* If srcset and dstset are equal, SMOVE is a no-op */
+    /* 两个集合相同，什么都不做 */
     if (srcset == dstset) {
         addReply(c,setTypeIsMember(srcset,ele->ptr) ?
             shared.cone : shared.czero);
         return;
     }
 
-    /* If the element cannot be removed from the src set, return 0. */
+    /* 如果源集合不可删除元素，返回0 */
     if (!setTypeRemove(srcset,ele->ptr)) {
         addReply(c,shared.czero);
         return;
     }
     notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
 
-    /* Remove the src set from the database when empty */
+    /* 如果操作后源key指向的集合为空，从数据库中删除 */
     if (setTypeSize(srcset) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
-    /* Create the destination set when it doesn't exist */
+    /* 如果目标key不存在，创建一个新集合 */
     if (!dstset) {
         dstset = setTypeCreate(ele->ptr);
         dbAdd(c->db,c->argv[2],dstset);
@@ -371,7 +394,7 @@ void smoveCommand(client *c) {
     signalModifiedKey(c->db,c->argv[2]);
     server.dirty++;
 
-    /* An extra key has changed when ele was successfully added to dstset */
+    /* 如果成员成功添加到目标集合中，通知数据库成功执行了sadd操作 */
     if (setTypeAdd(dstset,ele->ptr)) {
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
