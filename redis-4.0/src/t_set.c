@@ -211,11 +211,15 @@ sds setTypeNextObject(setTypeIterator *si) {
  * The returned element can be a int64_t value if the set is encoded
  * as an "intset" blob of integers, or an SDS string if the set
  * is a regular set.
+ * 从非空集合里随机返回一个元素
+ * 返回的值可能为整型或者字符串
  *
  * The caller provides both pointers to be populated with the right
  * object. The return value of the function is the object->encoding
  * field of the object and is used by the caller to check if the
  * int64_t pointer or the redis object pointer was populated.
+ * 获取得到的元素保存在sdsele或者llele的引用参数中
+ * 返回是值的编码，调用者根据编码获取不同的值
  *
  * Note that both the sdsele and llele pointers should be passed and cannot
  * be NULL since the function will try to defensively populate the non
@@ -402,6 +406,9 @@ void smoveCommand(client *c) {
     addReply(c,shared.cone);
 }
 
+/*
+ * sismember 命令实现
+ */
 void sismemberCommand(client *c) {
     robj *set;
 
@@ -414,6 +421,10 @@ void sismemberCommand(client *c) {
         addReply(c,shared.czero);
 }
 
+/*
+ * scard 命令实现
+ * 返回集合中key的元素数量
+ */
 void scardCommand(client *c) {
     robj *o;
 
@@ -424,11 +435,16 @@ void scardCommand(client *c) {
 }
 
 /* Handle the "SPOP key <count>" variant. The normal version of the
- * command is handled by the spopCommand() function itself. */
+ * command is handled by the spopCommand() function itself.
+ * 处理SPOP key <count> 命令
+ * 通常会被spopCommand方法调用
+ */
 
 /* How many times bigger should be the set compared to the remaining size
  * for us to use the "create new set" strategy? Read later in the
- * implementation for more info. */
+ * implementation for more info.
+ * 当弹出的数量与剩下的集合的倍数是多大时，才需要新建一个集合？在函数中体现
+ */
 #define SPOP_MOVE_STRATEGY_MUL 5
 
 void spopWithCountCommand(client *c) {
@@ -436,7 +452,7 @@ void spopWithCountCommand(client *c) {
     unsigned long count, size;
     robj *set;
 
-    /* Get the count argument */
+    /* 获取数量参数 */
     if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
     if (l >= 0) {
         count = (unsigned) l;
@@ -445,13 +461,11 @@ void spopWithCountCommand(client *c) {
         return;
     }
 
-    /* Make sure a key with the name inputted exists, and that it's type is
-     * indeed a set. Otherwise, return nil */
+    /* key要存在，key代表的对象类型要为集合 */
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
-    /* If count is zero, serve an empty multibulk ASAP to avoid special
-     * cases later. */
+    /* count为0，马上返回 */
     if (count == 0) {
         addReply(c,shared.emptymultibulk);
         return;
@@ -459,22 +473,21 @@ void spopWithCountCommand(client *c) {
 
     size = setTypeSize(set);
 
-    /* Generate an SPOP keyspace notification */
+    /* 发送spop事件 */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
     server.dirty += count;
 
     /* CASE 1:
-     * The number of requested elements is greater than or equal to
-     * the number of elements inside the set: simply return the whole set. */
+     * count 大于等于集合数量，直接返回整个集合 */
     if (count >= size) {
-        /* We just return the entire set */
+        /* 返回整个集合 */
         sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
 
-        /* Delete the set as it is now empty */
+        /* 从数据库中删除集合 */
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
-        /* Propagate this command as an DEL operation */
+        /* 传播DEL操作 */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
@@ -584,12 +597,16 @@ void spopWithCountCommand(client *c) {
     server.dirty++;
 }
 
+/*
+ * spop 命令实现
+ */
 void spopCommand(client *c) {
     robj *set, *ele, *aux;
     sds sdsele;
     int64_t llele;
     int encoding;
 
+    // 如果指定需要删除的元素数量，调用spopwithcountcommand方法
     if (c->argc == 3) {
         spopWithCountCommand(c);
         return;
@@ -598,15 +615,14 @@ void spopCommand(client *c) {
         return;
     }
 
-    /* Make sure a key with the name inputted exists, and that it's type is
-     * indeed a set */
+    /* 检查key存在且类型为集合 */
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
 
-    /* Get a random element from the set */
+    /* 随机获取集合的一个元素 */
     encoding = setTypeRandomElement(set,&sdsele,&llele);
 
-    /* Remove the element from the set */
+    /* 从集合中移除 */
     if (encoding == OBJ_ENCODING_INTSET) {
         ele = createStringObjectFromLongLong(llele);
         set->ptr = intsetRemove(set->ptr,llele,NULL);
@@ -626,7 +642,7 @@ void spopCommand(client *c) {
     addReplyBulk(c,ele);
     decrRefCount(ele);
 
-    /* Delete the set if it's empty */
+    /* 如果集合为空，从数据库中删除 */
     if (setTypeSize(set) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
