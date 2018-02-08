@@ -496,7 +496,10 @@ void spopWithCountCommand(client *c) {
 
     /* Case 2 and 3 require to replicate SPOP as a set of SREM commands.
      * Prepare our replication argument vector. Also send the array length
-     * which is common to both the code paths. */
+     * which is common to both the code paths.
+     * case 2和3是复制SPOP的参数，执行批量的SREM命令
+     * 需要准备一个参数的数组以及长度
+     */
     robj *propargv[3];
     propargv[0] = createStringObject("SREM",4);
     propargv[1] = c->argv[1];
@@ -512,10 +515,13 @@ void spopWithCountCommand(client *c) {
     /* If we are here, the number of requested elements is less than the
      * number of elements inside the set. Also we are sure that count < size.
      * Use two different strategies.
+     * 如果执行到这，需要删除的元素数量小于集合中的数量
      *
      * CASE 2: The number of elements to return is small compared to the
      * set size. We can just extract random elements and return them to
-     * the set. */
+     * the set.
+     * 需要删除的数量小于集合剩余数量的三倍，随机删除给定数量的元素
+     */
     if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         while(count--) {
             /* Emit and remove. */
@@ -544,10 +550,13 @@ void spopWithCountCommand(client *c) {
      * want to return (the elements that will remain part of the set),
      * creating a new set as we do this (that will be stored as the original
      * set). Then we return the elements left in the original set and
-     * release it. */
+     * release it.
+     * 需要删除的数量太多，执行删除操作花费的性能太大，使用另一种方式，
+     * 创建一个新集合，将删除后的剩余的元素保存起来
+     */
         robj *newset = NULL;
 
-        /* Create a new set with just the remaining elements. */
+        /* 创建一个新集合，保存剩余的元素 */
         while(remaining--) {
             encoding = setTypeRandomElement(set,&sdsele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -561,11 +570,11 @@ void spopWithCountCommand(client *c) {
             sdsfree(sdsele);
         }
 
-        /* Assign the new set as the key value. */
+        /* 保存新的集合到redis数据库 */
         incrRefCount(set); /* Protect the old set value. */
         dbOverwrite(c->db,c->argv[1],newset);
 
-        /* Tranfer the old set to the client and release it. */
+        /* 转移旧的集合 */
         setTypeIterator *si;
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&sdsele,&llele)) != -1) {
