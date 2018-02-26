@@ -663,11 +663,16 @@ void spopCommand(client *c) {
 }
 
 /* handle the "SRANDMEMBER key <count>" variant. The normal version of the
- * command is handled by the srandmemberCommand() function itself. */
+ * command is handled by the srandmemberCommand() function itself.
+ * 处理SRANDMEMBER key <count> 语法的命令
+ * 通常会被srandmemberCommand直接调用
+ */
 
 /* How many times bigger should be the set compared to the requested size
  * for us to don't use the "remove elements" strategy? Read later in the
- * implementation for more info. */
+ * implementation for more info.
+ * 集合本来的大小应该是请求大小的多少倍时，才不使用“删除元素”策略
+ */
 #define SRANDMEMBER_SUB_STRATEGY_MUL 3
 
 void srandmemberWithCountCommand(client *c) {
@@ -681,6 +686,7 @@ void srandmemberWithCountCommand(client *c) {
 
     dict *d;
 
+    // 处理count参数
     if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
     if (l >= 0) {
         count = (unsigned) l;
@@ -691,11 +697,12 @@ void srandmemberWithCountCommand(client *c) {
         uniq = 0;
     }
 
+    // 获取key对应的集合对象及集合大小
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
         == NULL || checkType(c,set,OBJ_SET)) return;
     size = setTypeSize(set);
 
-    /* If count is zero, serve it ASAP to avoid special cases later. */
+    /* count=0，尽快返回 */
     if (count == 0) {
         addReply(c,shared.emptymultibulk);
         return;
@@ -704,7 +711,10 @@ void srandmemberWithCountCommand(client *c) {
     /* CASE 1: The count was negative, so the extraction method is just:
      * "return N random elements" sampling the whole set every time.
      * This case is trivial and can be served without auxiliary data
-     * structures. */
+     * structures. 
+     * 第一种case，count小于0，返回集合中N个随机的元素
+     * 这个case是不重要的，不需要额外的数据结构就可以完成
+     */
     if (!uniq) {
         addReplyMultiBulkLen(c,count);
         while(count--) {
@@ -720,13 +730,16 @@ void srandmemberWithCountCommand(client *c) {
 
     /* CASE 2:
      * The number of requested elements is greater than the number of
-     * elements inside the set: simply return the whole set. */
+     * elements inside the set: simply return the whole set.
+     *
+     * count大于集合元素，返回整个集合
+     */
     if (count >= size) {
         sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
         return;
     }
 
-    /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
+    /* 新建一个字典数据结构，case3和case 4需要用到 */
     d = dictCreate(&objectKeyPointerValueDictType,NULL);
 
     /* CASE 3:
@@ -791,7 +804,7 @@ void srandmemberWithCountCommand(client *c) {
         }
     }
 
-    /* CASE 3 & 4: send the result to the user. */
+    /* CASE 3 & 4: 回显操作的内容 */
     {
         dictIterator *di;
         dictEntry *de;
@@ -805,6 +818,9 @@ void srandmemberWithCountCommand(client *c) {
     }
 }
 
+/*
+ * srandmember 命令实现
+ */
 void srandmemberCommand(client *c) {
     robj *set;
     sds ele;
@@ -812,6 +828,7 @@ void srandmemberCommand(client *c) {
     int encoding;
 
     if (c->argc == 3) {
+	// 命令参数等于3个，调用srandmemberWithCountCommand函数
         srandmemberWithCountCommand(c);
         return;
     } else if (c->argc > 3) {
@@ -819,9 +836,11 @@ void srandmemberCommand(client *c) {
         return;
     }
 
+    // 查找key
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
 
+    // 随机获取一个对象的成员
     encoding = setTypeRandomElement(set,&ele,&llele);
     if (encoding == OBJ_ENCODING_INTSET) {
         addReplyBulkLongLong(c,llele);
