@@ -861,6 +861,10 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return  (o2 ? setTypeSize(o2) : 0) - (o1 ? setTypeSize(o1) : 0);
 }
 
+/*
+ * sinter通用实现
+ * 如果dstkey不为空，则是sinterstore，将交集保存到dstkey对象中，否则就是简单返回交集
+ */
 void sinterGenericCommand(client *c, robj **setkeys,
                           unsigned long setnum, robj *dstkey) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
@@ -873,9 +877,11 @@ void sinterGenericCommand(client *c, robj **setkeys,
     int encoding;
 
     for (j = 0; j < setnum; j++) {
+	// 找到相应的key
         robj *setobj = dstkey ?
             lookupKeyWrite(c->db,setkeys[j]) :
             lookupKeyRead(c->db,setkeys[j]);
+	// 找不到key，释放申请集合空间，及时返回
         if (!setobj) {
             zfree(sets);
             if (dstkey) {
@@ -895,30 +901,33 @@ void sinterGenericCommand(client *c, robj **setkeys,
         }
         sets[j] = setobj;
     }
-    /* Sort sets from the smallest to largest, this will improve our
-     * algorithm's performance */
+    /*
+     * 对集合进行排序，从小到大，排序后会提高算法的性能
+     */
     qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
 
-    /* The first thing we should output is the total number of elements...
-     * since this is a multi-bulk write, but at this stage we don't know
-     * the intersection set size, so we use a trick, append an empty object
-     * to the output list and save the pointer to later modify it with the
-     * right length */
+    /*
+     * 首先应该返回的是结果集的总数
+     * 因为返回结果这是一个多次的写，但是此时不知道交集的大小，因此使用了一个小技巧，追加一个空对象到输出列表中，并保存该指针，之后再去修改它
+     */
     if (!dstkey) {
         replylen = addDeferredMultiBulkLength(c);
     } else {
-        /* If we have a target key where to store the resulting set
-         * create this key with an empty set inside */
+        /*
+	 * 如果需要保存结果，新建一个set对象
+	 */
         dstset = createIntsetObject();
     }
 
-    /* Iterate all the elements of the first (smallest) set, and test
-     * the element against all the other sets, if at least one set does
-     * not include the element it is discarded */
+    /*
+     * 遍历第一个集合的所有元素，检查在其他集合是否存在，如果其中一个集合不包含该元素，该次遍历结束
+     */
     si = setTypeInitIterator(sets[0]);
+    // 遍历第一个集合
     while((encoding = setTypeNext(si,&elesds,&intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
             if (sets[j] == sets[0]) continue;
+	    // 判断其他集合是否包含当前元素
             if (encoding == OBJ_ENCODING_INTSET) {
                 /* intset with intset is simple... and fast */
                 if (sets[j]->encoding == OBJ_ENCODING_INTSET &&
@@ -943,7 +952,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
             }
         }
 
-        /* Only take action when all sets contain the member */
+        /* 如果所有集合都包含该元素才会执行下面的操作 */
         if (j == setnum) {
             if (!dstkey) {
                 if (encoding == OBJ_ENCODING_HT)
@@ -965,8 +974,9 @@ void sinterGenericCommand(client *c, robj **setkeys,
     setTypeReleaseIterator(si);
 
     if (dstkey) {
-        /* Store the resulting set into the target, if the intersection
-         * is not an empty set. */
+        /*
+	 * 如果交集不为空且dstkey不为空，保存结果集合到目标key中
+	 */
         int deleted = dbDelete(c->db,dstkey);
         if (setTypeSize(dstset) > 0) {
             dbAdd(c->db,dstkey,dstset);
@@ -988,10 +998,16 @@ void sinterGenericCommand(client *c, robj **setkeys,
     zfree(sets);
 }
 
+/*
+ * sinter命令实现
+ */
 void sinterCommand(client *c) {
     sinterGenericCommand(c,c->argv+1,c->argc-1,NULL);
 }
 
+/*
+ * sinterstore命令实现
+ */
 void sinterstoreCommand(client *c) {
     sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1]);
 }
