@@ -1016,6 +1016,9 @@ void sinterstoreCommand(client *c) {
 #define SET_OP_DIFF 1
 #define SET_OP_INTER 2
 
+/*
+ * sunion系列命令具体实现
+ */
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
@@ -1025,6 +1028,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     int j, cardinality = 0;
     int diff_algo = 1;
 
+    /*
+     * 确认要找的集合存在
+     */
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
             lookupKeyWrite(c->db,setkeys[j]) :
@@ -1041,12 +1047,15 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     /* Select what DIFF algorithm to use.
+     * 选择DIFF算法
      *
      * Algorithm 1 is O(N*M) where N is the size of the element first set
      * and M the total number of sets.
+     * 算法1的复杂度是O(N*M) N是第一个集合的大小，M是总集合的数量
      *
      * Algorithm 2 is O(N) where N is the total number of elements in all
      * the sets.
+     * 算法2的复杂度是O(N) N是集合的所有元素数量
      *
      * We compute what is the best bet with the current input here. */
     if (op == SET_OP_DIFF && sets[0]) {
@@ -1081,6 +1090,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to the
          * temporary set. */
+        /*
+         * union 只是简单地添加每个元素到集合
+         */
         for (j = 0; j < setnum; j++) {
             if (!sets[j]) continue; /* non existing keys are like empty sets */
 
@@ -1094,9 +1106,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 1) {
         /* DIFF Algorithm 1:
          *
-         * We perform the diff by iterating all the elements of the first set,
-         * and only adding it to the target set if the element does not exist
-         * into all the other sets.
+         * DIFF 算法1
+         * 通过遍历第一个集合所有的元素，如果元素不在其他的集合里，就添加到目标集合里
          *
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
@@ -1118,8 +1129,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 2) {
         /* DIFF Algorithm 2:
          *
-         * Add all the elements of the first set to the auxiliary set.
-         * Then remove all the elements of all the next sets from it.
+         * DIFF算法2 添加第一个集合所有的元素到辅助集合里，然后移除下一个集合里相同的元素
          *
          * This is O(N) where N is the sum of all the elements in every
          * set. */
@@ -1176,6 +1186,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     zfree(sets);
 }
 
+/*
+ * sunion系列命令 start
+ */
 void sunionCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION);
 }
