@@ -38,15 +38,18 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-/* Low level key lookup API, not actually called directly from commands
- * implementations that should instead rely on lookupKeyRead(),
- * lookupKeyWrite() and lookupKeyReadWithFlags(). */
+/* 
+ * 查找key的API底层实现，不会被具体命令实现直接调用，而是在lookupKeyRead(),
+ * lookupKeyWrite() and lookupKeyReadWithFlags()三个函数调用
+ */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
+    // 在字典中根据key查找字典对象
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
+        // 获取字典对象的值
         robj *val = dictGetVal(de);
 
-        /* Update the access time for the ageing algorithm.
+        /* 更新key的最新访问时间
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
         if (server.rdb_child_pid == -1 &&
@@ -67,34 +70,41 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
     }
 }
 
-/* Lookup a key for read operations, or return NULL if the key is not found
- * in the specified DB.
+/* 
+ * 查找指定key用于读操作，如果找不到，返回NULL
+ * 
+ * 函数的附属功能如下：
+ * 1、如果key的TTL到达了，设置过期
+ * 2、更新key的最新访问时间
+ * 3、全局key的命中/不命中状态被更新
+ * 
  *
- * As a side effect of calling this function:
- * 1. A key gets expired if it reached it's TTL.
- * 2. The key last access time is updated.
- * 3. The global keys hits/misses stats are updated (reported in INFO).
- *
+ * 在获得key对象引用之后又写了该key，不应该使用这个API，只应该在读操作使用
  * This API should not be used when we write to the key after obtaining
  * the object linked to the key, but only for read only operations.
  *
- * Flags change the behavior of this command:
+ * 函数的具体操作根据Flags参数决定：
  *
- *  LOOKUP_NONE (or zero): no special flags are passed.
- *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
+ *  LOOKUP_NONE (or zero): 没有明确的指令
+ *  LOOKUP_NOTOUCH: 不修改key的最新访问时间
  *
  * Note: this function also returns NULL is the key is logically expired
  * but still existing, in case this is a slave, since this API is called only
  * for read operations. Even if the key expiry is master-driven, we can
  * correctly report a key is expired on slaves even if the master is lagging
- * expiring our key via DELs in the replication link. */
+ * expiring our key via DELs in the replication link. 
+ * 
+ * 注意：这个API只用于读操作，为了防止这是一个从库的操作，即使key还存在，但是如果key已经过期了，函数返回NULL
+ * 尽管key的过期操作是在主库上执行，但也可以准确地拿到key的过期状态
+ */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
     if (expireIfNeeded(db,key) == 1) {
-        /* Key expired. If we are in the context of a master, expireIfNeeded()
-         * returns 0 only when the key does not exist at all, so it's safe
-         * to return NULL ASAP. */
+        /* 
+         * key已经过期了，如果我们在主库的环境下，expireIfNeeded函数只会在key不存在的情况下返回0
+         * 因此，如果key已经过期，尽快地返回NULL
+         */
         if (server.masterhost == NULL) return NULL;
 
         /* However if we are in the context of a slave, expireIfNeeded() will
@@ -118,6 +128,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
         }
     }
     val = lookupKey(db,key,flags);
+    // 更新命中/不命中次数
     if (val == NULL)
         server.stat_keyspace_misses++;
     else
@@ -125,8 +136,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     return val;
 }
 
-/* Like lookupKeyReadWithFlags(), but does not use any flag, which is the
- * common case. */
+/* 跟lookupKeyReadWithFlags函数很像，但是一个最普通的case，不会使用任何标记 */
 robj *lookupKeyRead(redisDb *db, robj *key) {
     return lookupKeyReadWithFlags(db,key,LOOKUP_NONE);
 }
@@ -145,7 +155,7 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
 }
 
 /*
- * 查找数据库中指定key的对象并返回
+ * 查找数据库中指定key的对象并返回，查询出来的对象用于读操作
  */
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
