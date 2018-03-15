@@ -127,6 +127,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             return NULL;
         }
     }
+    // 调用底层函数查找key
     val = lookupKey(db,key,flags);
     // 更新命中/不命中次数
     if (val == NULL)
