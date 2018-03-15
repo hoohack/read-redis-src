@@ -317,8 +317,9 @@ void expireSlaveKeys(void) {
     }
 }
 
-/* Track keys that received an EXPIRE or similar command in the context
- * of a writable slave. */
+/* 
+ * 记录在可写的从库环境下接收到expire或相似命令的key
+ */
 void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
     if (slaveKeysWithExpire == NULL) {
         static dictType dt = {
