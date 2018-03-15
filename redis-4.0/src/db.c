@@ -1061,6 +1061,7 @@ void swapdbCommand(client *c) {
 
 /*-----------------------------------------------------------------------------
  * Expires API
+ * 过期时间相关API
  *----------------------------------------------------------------------------*/
 
 int removeExpire(redisDb *db, robj *key) {
@@ -1111,14 +1112,13 @@ long long getExpire(redisDb *db, robj *key) {
     return dictGetSignedIntegerVal(de);
 }
 
-/* Propagate expires into slaves and the AOF file.
- * When a key expires in the master, a DEL operation for this key is sent
- * to all the slaves and the AOF file if enabled.
+/* 
+ * 广播expire事件到从库和AOF文件
+ * 当一个key在主库中过期了，会发一个key的DEL事件到所有从库和AOF文件（如果AOF启动了）
  *
- * This way the key expiry is centralized in one place, and since both
- * AOF and the master->slave link guarantee operation ordering, everything
- * will be consistent even if we allow write operations against expiring
- * keys. */
+ * 这样一来，key的过期事件集中在一个地方，因为AOF和主从保证了操作的顺序，
+ * 即使允许对过期key进行写操作，所有的数据都会保持着一致性
+ */
 void propagateExpire(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 
@@ -1128,7 +1128,8 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     incrRefCount(argv[1]);
 
     if (server.aof_state != AOF_OFF)
-        feedAppendOnlyFile(server.delCommand,db->id,argv,2);
+        feedAppendOnlyFile(server.delCommand,db->id,argv,2);// 如果AOF启动了，DEL写到AOF文件
+    // 通知从库
     replicationFeedSlaves(server.slaves,db->id,argv,2);
 
     decrRefCount(argv[0]);
@@ -1136,34 +1137,37 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
 }
 
 int expireIfNeeded(redisDb *db, robj *key) {
-    mstime_t when = getExpire(db,key);
+    mstime_t when = getExpire(db,key);// 获取key的过期时间
     mstime_t now;
 
-    if (when < 0) return 0; /* No expire for this key */
+    if (when < 0) return 0; /* 负数代表key没有过期时间 */
 
-    /* Don't expire anything while loading. It will be done later. */
+    /* 如果服务器正在启动中，不执行过期操作 */
     if (server.loading) return 0;
 
     /* If we are in the context of a Lua script, we claim that time is
      * blocked to when the Lua script started. This way a key can expire
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
+     * See issue #1525 on Github for more information. 
+     * 如果在lua脚本环境下，声明当前时间为脚本启动的时间
+     * 这样一来，key只会在脚本执行完成后第一次被访问时过期
+     */
     now = server.lua_caller ? server.lua_time_start : mstime();
 
-    /* If we are running in the context of a slave, return ASAP:
-     * the slave key expiration is controlled by the master that will
-     * send us synthesized DEL operations for expired keys.
+    /* 
      *
-     * Still we try to return the right information to the caller,
-     * that is, 0 if we think the key should be still valid, 1 if
-     * we think the key is expired at this time. */
+     * 如果运行在从库，马上返回，因为从库key的过期操作是由主库控制的，主库会
+     * 通知从库同步key的DEL操作
+     * 
+     * 当然，仍然需要返回正确的信息，如果key已经过期了，返回1，否则返回0
+     */
     if (server.masterhost != NULL) return now > when;
 
-    /* Return when this key has not expired */
+    /* 如果key没有过期，返回0 */
     if (now <= when) return 0;
 
-    /* Delete the key */
+    /* 执行删除key操作 */
     server.stat_expiredkeys++;
     propagateExpire(db,key,server.lazyfree_lazy_expire);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
