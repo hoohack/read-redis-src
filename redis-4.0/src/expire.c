@@ -372,15 +372,18 @@ void flushSlaveKeysWithExpireList(void) {
 
 /*-----------------------------------------------------------------------------
  * Expires Commands
+ * 过期命令
  *----------------------------------------------------------------------------*/
 
-/* This is the generic command implementation for EXPIRE, PEXPIRE, EXPIREAT
- * and PEXPIREAT. Because the commad second argument may be relative or absolute
- * the "basetime" argument is used to signal what the base time is (either 0
- * for *AT variants of the command, or the current time for relative expires).
+/*
  *
- * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliseconds. */
+ * EXPIRE、PEXPIRE、EXPIREAT、PEXPIREAT函数的通用实现。
+ * 命令的第二个参数是可以是绝对或相对的的时间，basetime参数用来标识具体的时间基数
+ * （0表示*AT类命令，1是相对现在的过期时间）
+ *
+ * unit是UNIT_SECONDS或者UNIT_MILLISECONDS，只用于计算第二个参数的具体值
+ * basetime单位始终是毫秒
+ */
 void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
@@ -391,18 +394,18 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
-    /* No key, return zero. */
+    /* key找不到，返回0 */
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
     }
 
-    /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
-     * should never be executed as a DEL when load the AOF or in the context
-     * of a slave instance.
+    /* 
+     * 当AOF正在加载数据或者在从库的环境下，即使EXPIRE的TTL为负数，或者EXPIREAT的
+     * 时间戳已经过期，也不能主动删除key，而是等待主库发送一个显式的DEL命令
      *
-     * Instead we take the other branch of the IF statement setting an expire
-     * (possibly in the past) and wait for an explicit DEL from the master. */
+     * 程序会继续为key设置过期时间，并等待主库发送显式的DEL指令
+     */
     if (when <= mstime() && !server.loading && !server.masterhost) {
         robj *aux;
 
@@ -411,7 +414,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
 
-        /* Replicate/AOF this as an explicit DEL or UNLINK. */
+        /* 发送一个显式的DEL/UNLINK操作 */
         aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
         rewriteClientCommandVector(c,2,aux,key);
         signalModifiedKey(c->db,key);
@@ -419,7 +422,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
-        setExpire(c,c->db,key,when);
+        setExpire(c,c->db,key,when);// 更新db中保存过期时间的字典对象
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
@@ -448,17 +451,16 @@ void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
-/* Implements TTL and PTTL */
+/* TTL和PTTL命令实现 */
 void ttlGenericCommand(client *c, int output_ms) {
     long long expire, ttl = -1;
 
-    /* If the key does not exist at all, return -2 */
+    /* key不存在，返回-2 */
     if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL) {
         addReplyLongLong(c,-2);
         return;
     }
-    /* The key exists. Return -1 if it has no expire, or the actual
-     * TTL value otherwise. */
+    /* 如果key没有过期，返回-1，否则返回正确的TTL值 */
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
         ttl = expire-mstime();
