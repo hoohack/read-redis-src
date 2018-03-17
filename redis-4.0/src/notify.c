@@ -98,24 +98,27 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     int len = -1;
     char buf[24];
 
-    /* If notifications for this class of events are off, return ASAP. */
+    /* 通知事件被关闭了，马上返回 */
     if (!(server.notify_keyspace_events & type)) return;
 
     eventobj = createStringObject(event,strlen(event));
 
     /* __keyspace@<db>__:<key> <event> notifications. */
+    /* key 执行了什么命令 */
     if (server.notify_keyspace_events & NOTIFY_KEYSPACE) {
         chan = sdsnewlen("__keyspace@",11);
         len = ll2string(buf,sizeof(buf),dbid);
+        // 构建频道名称
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
         chan = sdscatsds(chan, key->ptr);
         chanobj = createObject(OBJ_STRING, chan);
         pubsubPublishMessage(chanobj, eventobj);
-        decrRefCount(chanobj);
+        decrRefCount(chanobj); // 用完了，释放对象的引用
     }
 
     /* __keyevente@<db>__:<event> <key> notifications. */
+    /* 命令执行在哪些key了 */
     if (server.notify_keyspace_events & NOTIFY_KEYEVENT) {
         chan = sdsnewlen("__keyevent@",11);
         if (len == -1) len = ll2string(buf,sizeof(buf),dbid);

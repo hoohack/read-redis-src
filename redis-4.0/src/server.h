@@ -730,8 +730,8 @@ typedef struct client {
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
-    list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    dict *pubsub_channels;  /* 客户端订阅的频道 */
+    list *pubsub_patterns;  /* 客户端订阅的模式 */
     sds peerid;             /* Cached peer ID. */
 
     /* Response buffer */
@@ -886,14 +886,14 @@ struct clusterState;
 
 struct redisServer {
     /* General */
-    pid_t pid;                  /* Main process pid. */
-    char *configfile;           /* Absolute config file path, or NULL */
-    char *executable;           /* Absolute executable file path. */
-    char **exec_argv;           /* Executable argv vector (copy). */
+    pid_t pid;                  /* 主进程pid */
+    char *configfile;           /* 配置文件绝对路径，默认为NULL */
+    char *executable;           /* 执行文件绝对路径 */
+    char **exec_argv;           /* 保存启动server时参数数组 */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;		/* 保存服务器中所有数据库的数组 */
-    dict *commands;             /* Command table */
-    dict *orig_commands;        /* Command table before command renaming. */
+    dict *commands;             /* 命令表 */
+    dict *orig_commands;        /* 命令重命名前的命令表 */
     aeEventLoop *el;
     unsigned int lruclock;      /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */

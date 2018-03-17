@@ -43,7 +43,7 @@
 #include "util.h"
 #include "sha1.h"
 
-/* Glob-style pattern matching. */
+/* 正则匹配函数 */
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
 {
