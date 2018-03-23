@@ -251,9 +251,10 @@ unsigned long setTypeSize(const robj *subject) {
     }
 }
 
-/* Convert the set to specified encoding. The resulting dict (when converting
- * to a hash table) is presized to hold the number of elements in the original
- * set. */
+/*
+ * 转换集合的编码
+ * 转换后的字典对象预分配了一些大小来保存之前集合的元素
+ */
 void setTypeConvert(robj *setobj, int enc) {
     setTypeIterator *si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
@@ -264,10 +265,10 @@ void setTypeConvert(robj *setobj, int enc) {
         dict *d = dictCreate(&setDictType,NULL);
         sds element;
 
-        /* Presize the dict to avoid rehashing */
+        /* 提前调整集合的大小，避免重新哈希 */
         dictExpand(d,intsetLen(setobj->ptr));
 
-        /* To add the elements we extract integers and create redis objects */
+        /* 添加一个元素到字典中，先从整数集合中取出元素，然后创建一个redis字符串对象保存 */
         si = setTypeInitIterator(setobj);
         while (setTypeNext(si,&element,&intele) != -1) {
             element = sdsfromlonglong(intele);

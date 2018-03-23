@@ -1454,7 +1454,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 }
 
 /* Mark that we are loading in the global state and setup the fields
- * needed to provide loading stats. */
+ * needed to provide loading stats.
+ * 设置全局状态值，标志着载入过程正在进行
+ */
 void startLoading(FILE *fp) {
     struct stat sb;
 
@@ -1511,14 +1513,14 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
 
     rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
-    if (rioRead(rdb,buf,9) == 0) goto eoferr;
+    if (rioRead(rdb,buf,9) == 0) goto eoferr;// 读取"REDIS"和版本号，共9个字符
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         serverLog(LL_WARNING,"Wrong signature trying to load DB from file");
         errno = EINVAL;
         return C_ERR;
     }
-    rdbver = atoi(buf+5);
+    rdbver = atoi(buf+5);// 第5位之后是版本号
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         serverLog(LL_WARNING,"Can't handle RDB format version %d",rdbver);
         errno = EINVAL;
@@ -1529,11 +1531,12 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
         robj *key, *val;
         expiretime = -1;
 
-        /* Read type. */
-        if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
+        /* 读取数据类型 */
+        if ((type = rdbLoadType(rdb)) == -1) goto eoferr; // 错误类型
 
         /* Handle special types. */
         if (type == RDB_OPCODE_EXPIRETIME) {
+            // 读取过期时间 单位秒
             /* EXPIRETIME: load an expire associated with the next key
              * to load. Note that after loading an expire we need to
              * load the actual type, and continue. */
@@ -1544,16 +1547,17 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
              * into milliseconds. */
             expiretime *= 1000;
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
+            // 读取过期时间，单位毫秒
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             if ((expiretime = rdbLoadMillisecondTime(rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
             if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
         } else if (type == RDB_OPCODE_EOF) {
-            /* EOF: End of file, exit the main loop. */
+            /* EOF: End of file,读取文件结束 */
             break;
         } else if (type == RDB_OPCODE_SELECTDB) {
-            /* SELECTDB: Select the specified database. */
+            /* SELECTDB: 选择数据库 */
             if ((dbid = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             if (dbid >= (unsigned)server.dbnum) {
@@ -1564,10 +1568,9 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
                 exit(1);
             }
             db = server.db+dbid;
-            continue; /* Read type again. */
+            continue; /* 继续读下一个数据类型 */
         } else if (type == RDB_OPCODE_RESIZEDB) {
-            /* RESIZEDB: Hint about the size of the keys in the currently
-             * selected data base, in order to avoid useless rehashing. */
+            /* RESIZEDB: 提示需要进行重新调整大小，避免不必要的重新哈希 */
             uint64_t db_size, expires_size;
             if ((db_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
@@ -1614,29 +1617,30 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
             continue; /* Read type again. */
         }
 
-        /* Read key */
+        /* 读取key */
         if ((key = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
-        /* Read value */
+        /* 读取值 */
         if ((val = rdbLoadObject(type,rdb)) == NULL) goto eoferr;
-        /* Check if the key already expired. This function is used when loading
-         * an RDB file from disk, either at startup, or when an RDB was
-         * received from the master. In the latter case, the master is
-         * responsible for key expiry. If we would expire keys here, the
-         * snapshot taken by the master may not be reflected on the slave. */
+        /*
+         * 检查key是否已经过期。
+         * 这个函数是在启动或主库发送一个RDB文件过来，通知从硬盘中加载rdb文件，
+         * 如果是主库发送文件过来，主库必须保证key的有效性，如果在这里把key设置为过期了，
+         * 主库生成的快照就不会包含过期的key了
+         */
         if (server.masterhost == NULL && expiretime != -1 && expiretime < now) {
             decrRefCount(key);
             decrRefCount(val);
             continue;
         }
-        /* Add the new object in the hash table */
+        /* 读取key-value成功，添加一个新的对象到数据库的哈希表中 */
         dbAdd(db,key,val);
 
-        /* Set the expire time if needed */
+        /* 如果有过期时间，就设置 */
         if (expiretime != -1) setExpire(NULL,db,key,expiretime);
 
         decrRefCount(key);
     }
-    /* Verify the checksum if RDB version is >= 5 */
+    /* 如果RDB的版本大于5，校验checksum */
     if (rdbver >= 5 && server.rdb_checksum) {
         uint64_t cksum, expected = rdb->cksum;
 
@@ -1664,6 +1668,9 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
  *
  * If you pass an 'rsi' structure initialied with RDB_SAVE_OPTION_INIT, the
  * loading code will fiil the information fields in the structure. */
+/*
+ * 载入RDB文件
+ */
 int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     FILE *fp;
     rio rdb;
@@ -1671,8 +1678,8 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi) {
 
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
     startLoading(fp);
-    rioInitWithFile(&rdb,fp);
-    retval = rdbLoadRio(&rdb,rsi);
+    rioInitWithFile(&rdb,fp);// 初始化
+    retval = rdbLoadRio(&rdb,rsi); // 真正载入文件
     fclose(fp);
     stopLoading();
     return retval;
