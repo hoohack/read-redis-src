@@ -266,24 +266,18 @@ int startAppendOnly(void) {
     return C_OK;
 }
 
-/* Write the append only file buffer on disk.
+/*
+ * 把aof缓冲区写入硬盘
  *
- * Since we are required to write the AOF before replying to the client,
- * and the only way the client socket can get a write is entering when the
- * the event loop, we accumulate all the AOF writes in a memory
- * buffer and write it on disk using this function just before entering
- * the event loop again.
+ * 因为要做到在响应客户端之前就写AOF缓冲区到硬盘，而且客户端socket只能在事件循环中执行写动作
+ * 因此再次进入事件循环之前，使用此函数计算所有在内存缓冲的aof指令并且写到硬盘
  *
- * About the 'force' argument:
+ * force参数说明 :
  *
- * When the fsync policy is set to 'everysec' we may delay the flush if there
- * is still an fsync() going on in the background thread, since for instance
- * on Linux write(2) will be blocked by the background fsync anyway.
- * When this happens we remember that there is some aof buffer to be
- * flushed ASAP, and will try to do that in the serverCron() function.
+ * 当同步策略设为每秒的时候，如果同步正在后台进行，程序需要延迟输出缓冲，因为Linux的write操作会被后台的同步阻塞。
+ * 当上面的情况发生时，程序需要记住这里有一些aof缓冲需要及时被输出，会在serverCron函数里体现。
  *
- * However if force is set to 1 we'll write regardless of the background
- * fsync. */
+ * 但是，如果force=1，就会忽略后台的同步，强制地输出缓冲。 */
 #define AOF_WRITE_LOG_ERROR_RATE 30 /* Seconds between errors logging. */
 void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
@@ -296,28 +290,27 @@ void flushAppendOnlyFile(int force) {
         sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
-        /* With this append fsync policy we do background fsyncing.
-         * If the fsync is still in progress we can try to delay
-         * the write for a couple of seconds. */
+        /* 同步策略是每秒，而且没有强制要求，在后台执行同步操作
+         * 如果同步仍在执行，就会尝试延迟写
+         */
         if (sync_in_progress) {
+            // 如果同步正在执行
             if (server.aof_flush_postponed_start == 0) {
-                /* No previous write postponing, remember that we are
-                 * postponing the flush and return. */
+
+                /* 之前的写操作没有被延迟，记录延迟缓冲输出时间然后返回 */
                 server.aof_flush_postponed_start = server.unixtime;
                 return;
             } else if (server.unixtime - server.aof_flush_postponed_start < 2) {
-                /* We were already waiting for fsync to finish, but for less
-                 * than two seconds this is still ok. Postpone again. */
+                /* 当前以及在等待同步的完成，如果2秒之后还没完成，再次延迟。 */
                 return;
             }
-            /* Otherwise fall trough, and go write since we can't wait
-             * over two seconds. */
+            /* 否则，就执行写操作，延迟1秒 */
             server.aof_delayed_fsync++;
             serverLog(LL_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
     }
-    /* We want to perform a single write. This should be guaranteed atomic
-     * at least if the filesystem we are writing is a real physical one.
+    /* 希望程序执行一个单一的写操作。如果写的是真正的物理硬盘，这个操作需要保证原子性
+     *
      * While this will save us against the server being killed I don't think
      * there is much to do about the whole server stopping for power problems
      * or alike */
@@ -339,20 +332,21 @@ void flushAppendOnlyFile(int force) {
     }
     latencyAddSampleIfNeeded("aof-write",latency);
 
-    /* We performed the write so reset the postponed flush sentinel to zero. */
+    /* 以下执行写操作，把推迟输出缓冲标志设为0 */
     server.aof_flush_postponed_start = 0;
 
     if (nwritten != (signed)sdslen(server.aof_buf)) {
+        // 出错的处理
         static time_t last_write_error_log = 0;
         int can_log = 0;
 
-        /* Limit logging rate to 1 line per AOF_WRITE_LOG_ERROR_RATE seconds. */
+        /* 限制记录日志的速率为每AOF_WRITE_LOG_ERROR_RATE秒一行 */
         if ((server.unixtime - last_write_error_log) > AOF_WRITE_LOG_ERROR_RATE) {
             can_log = 1;
             last_write_error_log = server.unixtime;
         }
 
-        /* Log the AOF write error and record the error code. */
+        /* 记录AOF写错误，以及错误码 */
         if (nwritten == -1) {
             if (can_log) {
                 serverLog(LL_WARNING,"Error writing to the AOF file: %s",
@@ -360,6 +354,7 @@ void flushAppendOnlyFile(int force) {
                 server.aof_last_write_errno = errno;
             }
         } else {
+            // 记录日志
             if (can_log) {
                 serverLog(LL_WARNING,"Short write while writing to "
                                        "the AOF file: (nwritten=%lld, "
@@ -383,7 +378,7 @@ void flushAppendOnlyFile(int force) {
             server.aof_last_write_errno = ENOSPC;
         }
 
-        /* Handle the AOF write error. */
+        /* 处理AOF写错误 */
         if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
             /* We can't recover when the fsync policy is ALWAYS since the
              * reply for the client is already in the output buffers, and we
@@ -406,8 +401,7 @@ void flushAppendOnlyFile(int force) {
             return; /* We'll try again on the next call... */
         }
     } else {
-        /* Successful write(2). If AOF was in error state, restore the
-         * OK state and log the event. */
+        /* 写成功了，如果AOF在错误的阶段，重新记录OK状态和事件 */
         if (server.aof_last_write_status == C_ERR) {
             serverLog(LL_WARNING,
                 "AOF write error looks solved, Redis can write again.");
@@ -1062,6 +1056,9 @@ ssize_t aofReadDiffFromParent(void) {
     return total;
 }
 
+/*
+ * 重写实现
+ */
 int rewriteAppendOnlyFileRio(rio *aof) {
     dictIterator *di = NULL;
     dictEntry *de;
@@ -1069,35 +1066,39 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     long long now = mstime();
     int j;
 
+    // 遍历数据库
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db+j;
         dict *d = db->dict;
+        // 忽略空数据库
         if (dictSize(d) == 0) continue;
         di = dictGetSafeIterator(d);
 
-        /* SELECT the new DB */
+        /* 选择当前数据库 */
         if (rioWrite(aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
-        /* Iterate this DB writing every entry */
+        /* 遍历数据库中的所有键 */
         while((de = dictNext(di)) != NULL) {
             sds keystr;
             robj key, *o;
             long long expiretime;
 
+            // 键值对的key
             keystr = dictGetKey(de);
-            o = dictGetVal(de);
-            initStaticStringObject(key,keystr);
+            o = dictGetVal(de); // 键值对的value
+            initStaticStringObject(key,keystr); // 为key创建字符串对象
 
+            // 过期时间
             expiretime = getExpire(db,&key);
 
-            /* If this key is already expired skip it */
+            /* 忽略超过过期时间的key */
             if (expiretime != -1 && expiretime < now) continue;
 
-            /* Save the key and associated value */
+            /* 保存key和对应的值 */
             if (o->type == OBJ_STRING) {
-                /* Emit a SET command */
+                /* 处理set命令 */
                 char cmd[]="*3\r\n$3\r\nSET\r\n";
                 if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 /* Key and value */
@@ -1116,14 +1117,14 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             } else {
                 serverPanic("Unknown object type");
             }
-            /* Save the expire time */
+            /* 保存过期时间 */
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
                 if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 if (rioWriteBulkObject(aof,&key) == 0) goto werr;
                 if (rioWriteBulkLongLong(aof,expiretime) == 0) goto werr;
             }
-            /* Read some diff from the parent process from time to time. */
+            /* 从父进程读取更新的值 */
             if (aof->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES) {
                 processed = aof->processed_bytes;
                 aofReadDiffFromParent();
@@ -1139,21 +1140,17 @@ werr:
     return C_ERR;
 }
 
-/* Write a sequence of commands able to fully rebuild the dataset into
- * "filename". Used both by REWRITEAOF and BGREWRITEAOF.
+/* 重写一系列的命令使程序可以重新构造数据集到filename。通过REWRITEAOF和BGWRITEAOF调用
  *
- * In order to minimize the number of commands needed in the rewritten
- * log Redis uses variadic commands when possible, such as RPUSH, SADD
- * and ZADD. However at max AOF_REWRITE_ITEMS_PER_CMD items per time
- * are inserted using a single command. */
+ * 为了使重写的命令（比如RPUSH、SADD、ZADD）数量最小化，使用了可变参数
+ * 但是，最多一次会插入AOF_REWRITE_ITEMS_PER_CMD个命令 */
 int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp;
     char tmpfile[256];
     char byte;
 
-    /* Note that we have to use a different temp name here compared to the
-     * one used by rewriteAppendOnlyFileBackground() function. */
+    /* 注意，另一个重写函数rewriteAppendOnlyFileBackground也会产生临时文件，为了区分，这里需要使用不同的临时文件名称 */
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
@@ -1164,21 +1161,23 @@ int rewriteAppendOnlyFile(char *filename) {
     server.aof_child_diff = sdsempty();
     rioInitWithFile(&aof,fp);
 
+    // 如果需要马上同步，设置标记
     if (server.aof_rewrite_incremental_fsync)
         rioSetAutoSync(&aof,AOF_AUTOSYNC_BYTES);
 
     if (server.aof_use_rdb_preamble) {
         int error;
+        // 使用RDB 格式全量保存数据
         if (rdbSaveRio(&aof,&error,RDB_SAVE_AOF_PREAMBLE,NULL) == C_ERR) {
             errno = error;
             goto werr;
         }
     } else {
+        // 使用AOF持久化，执行重写实现
         if (rewriteAppendOnlyFileRio(&aof) == C_ERR) goto werr;
     }
 
-    /* Do an initial slow fsync here while the parent is still sending
-     * data, in order to make the next final fsync faster. */
+    /* 为了下一次同步更快一点，父进程还在发送数据时，先执行一次文件同步 */
     if (fflush(fp) == EOF) goto werr;
     if (fsync(fileno(fp)) == -1) goto werr;
 
@@ -1201,7 +1200,7 @@ int rewriteAppendOnlyFile(char *filename) {
         aofReadDiffFromParent();
     }
 
-    /* Ask the master to stop sending diffs. */
+    /* 通知主库停止发送更多命令 */
     if (write(server.aof_pipe_write_ack_to_parent,"!",1) != 1) goto werr;
     if (anetNonBlock(NULL,server.aof_pipe_read_ack_from_parent) != ANET_OK)
         goto werr;
@@ -1222,13 +1221,14 @@ int rewriteAppendOnlyFile(char *filename) {
     if (rioWrite(&aof,server.aof_child_diff,sdslen(server.aof_child_diff)) == 0)
         goto werr;
 
-    /* Make sure data will not remain on the OS's output buffers */
+    /* 把缓冲都输出，确保当前计算机不会保存之前的缓冲 */
     if (fflush(fp) == EOF) goto werr;
     if (fsync(fileno(fp)) == -1) goto werr;
     if (fclose(fp) == EOF) goto werr;
 
-    /* Use RENAME to make sure the DB file is changed atomically only
-     * if the generate DB file is ok. */
+    /*
+     * 仅当DB文件已经生成，调用rename函数对文件进行重命名，从而得到重写后的文件
+     */
     if (rename(tmpfile,filename) == -1) {
         serverLog(LL_WARNING,"Error moving temp append only file on the final destination: %s", strerror(errno));
         unlink(tmpfile);
