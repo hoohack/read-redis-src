@@ -39,6 +39,9 @@ typedef struct aeApiState {
     fd_set _rfds, _wfds;
 } aeApiState;
 
+/*
+ * 初始化事件轮询数据结构体
+ */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
@@ -49,8 +52,11 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     return 0;
 }
 
+/*
+ * 调整eventloop的数据集合大小
+ */
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
-    /* Just ensure we have enough room in the fd_set type. */
+    /* select的实现只需要保证有足够的文件描述符空间 */
     if (setsize >= FD_SETSIZE) return -1;
     return 0;
 }
@@ -59,6 +65,9 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(eventLoop->apidata);
 }
 
+/*
+ * 添加一个事件
+ */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
 
@@ -74,6 +83,9 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_WRITABLE) FD_CLR(fd,&state->wfds);
 }
 
+/*
+ * 多路复用实现
+ */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, j, numevents = 0;
@@ -81,6 +93,10 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     memcpy(&state->_rfds,&state->rfds,sizeof(fd_set));
     memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
 
+    /*
+     * 监听多个文件描述符的可读可写情况，当其中的某些文件描述符可读或者可写时
+     * 返回可读以及可写的文件描述符个数。
+    */
     retval = select(eventLoop->maxfd+1,
                 &state->_rfds,&state->_wfds,NULL,tvp);
     if (retval > 0) {
@@ -93,6 +109,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                 mask |= AE_READABLE;
             if (fe->mask & AE_WRITABLE && FD_ISSET(j,&state->_wfds))
                 mask |= AE_WRITABLE;
+            /* 将待处理事件加入eventLoop的fired数组中 */
             eventLoop->fired[numevents].fd = j;
             eventLoop->fired[numevents].mask = mask;
             numevents++;

@@ -97,7 +97,7 @@ typedef struct aeEventLoop {
     aeFiredEvent *fired; /* 已触发事件，待处理 */
     aeTimeEvent *timeEventHead;
     int stop;
-    void *apidata; /* This is used for polling API specific data */
+    void *apidata; /* 用于保存轮询API指定数据 */
     aeBeforeSleepProc *beforesleep;
     aeBeforeSleepProc *aftersleep;
 } aeEventLoop;

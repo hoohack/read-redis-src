@@ -36,6 +36,9 @@ typedef struct aeApiState {
     struct epoll_event *events;
 } aeApiState;
 
+/*
+ * 初始化事件轮询数据结构体
+ */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
@@ -45,6 +48,9 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
+    /*
+     * 创建epoll句柄，监听1024个文件描述符
+     */
     state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
     if (state->epfd == -1) {
         zfree(state->events);
@@ -55,6 +61,9 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     return 0;
 }
 
+/*
+ * 调整eventloop的数据集合大小
+ */
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
     aeApiState *state = eventLoop->apidata;
 
@@ -70,6 +79,9 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
+/*
+ * 添加一个事件
+ */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
     struct epoll_event ee = {0}; /* avoid valgrind warning */
@@ -105,10 +117,14 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     }
 }
 
+/*
+ * 多路复用实现
+ */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
 
+    /* 等待就绪事件产生 */
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
     if (retval > 0) {

@@ -79,6 +79,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
+    // 根据引入的文件调用对应函数
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -486,9 +487,6 @@ void aeMain(aeEventLoop *eventLoop) {
     }
 }
 
-/*
- * return "select"
- */
 char *aeGetApiName(void) {
     return aeApiName();
 }

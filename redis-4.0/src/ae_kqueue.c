@@ -38,6 +38,9 @@ typedef struct aeApiState {
     struct kevent *events;
 } aeApiState;
 
+/*
+ * 初始化事件轮询数据结构体
+ */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
@@ -57,6 +60,9 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     return 0;
 }
 
+/*
+ * 调整eventloop的数据集合大小
+ */
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
     aeApiState *state = eventLoop->apidata;
 
@@ -72,6 +78,9 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
+/*
+ * 添加一个事件
+ */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
     struct kevent ke;
@@ -101,6 +110,9 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     }
 }
 
+/*
+ * 多路复用实现
+ */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;

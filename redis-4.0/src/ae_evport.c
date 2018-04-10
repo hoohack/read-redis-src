@@ -72,6 +72,9 @@ typedef struct aeApiState {
     int     pending_masks[MAX_EVENT_BATCHSZ];   /* pending fds' masks */
 } aeApiState;
 
+/*
+ * 初始化事件轮询数据结构体
+ */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     int i;
     aeApiState *state = zmalloc(sizeof(aeApiState));
@@ -95,7 +98,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 }
 
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
-    /* Nothing to resize here. */
+    /* 这种类型的实现不需要调整 */
     return 0;
 }
 
