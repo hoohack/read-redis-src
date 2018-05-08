@@ -1335,17 +1335,23 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
+/*
+ * 初始化redisServer变量
+ */
 void initServerConfig(void) {
     int j;
 
+    // 为属性初始化线程锁
     pthread_mutex_init(&server.next_client_id_mutex,NULL);
     pthread_mutex_init(&server.lruclock_mutex,NULL);
     pthread_mutex_init(&server.unixtime_mutex,NULL);
 
+    // 设置服务器的运行ID
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
     clearReplicationId2();
+    // 初始化其他属性
     server.configfile = NULL;
     server.executable = NULL;
     server.hz = CONFIG_DEFAULT_HZ;
@@ -1433,7 +1439,7 @@ void initServerConfig(void) {
     server.cluster_announce_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT;
     server.cluster_announce_bus_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
-    server.next_client_id = 1; /* Client IDs, start from 1 .*/
+    server.next_client_id = 1; /* 客户端i的，从1开始 */
     server.loading_process_events_interval_bytes = (1024*1024*2);
     server.lazyfree_lazy_eviction = CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION;
     server.lazyfree_lazy_expire = CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE;
@@ -1441,6 +1447,7 @@ void initServerConfig(void) {
     server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
 
+    // 初始化lru时钟
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
@@ -1449,7 +1456,7 @@ void initServerConfig(void) {
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
-    /* Replication related */
+    /* 主从备份相关参数 */
     server.masterauth = NULL;
     server.masterhost = NULL;
     server.masterport = 6379;
@@ -1483,7 +1490,7 @@ void initServerConfig(void) {
     server.repl_backlog_time_limit = CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
     server.repl_no_slaves_since = time(NULL);
 
-    /* Client output buffer limits */
+    /* 客户端输出的缓冲限制 */
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
 
@@ -1493,7 +1500,8 @@ void initServerConfig(void) {
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
 
-    /* Command table -- we initiialize it here as it is part of the
+    /* 创建命令表
+     * Command table -- we initiialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
@@ -1509,7 +1517,7 @@ void initServerConfig(void) {
     server.expireCommand = lookupCommandByCString("expire");
     server.pexpireCommand = lookupCommandByCString("pexpire");
 
-    /* Slow log */
+    /* 慢查询日志 */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN;
 
@@ -1786,6 +1794,9 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
 }
 
+/*
+ * 初始化服务器
+ */
 void initServer(void) {
     int j;
 
@@ -1798,9 +1809,9 @@ void initServer(void) {
             server.syslog_facility);
     }
 
-    server.pid = getpid();
-    server.current_client = NULL;
-    server.clients = listCreate();
+    server.pid = getpid(); // 进程ID
+    server.current_client = NULL; // 当前连接的客户端
+    server.clients = listCreate(); // 客户端链表
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
@@ -1813,7 +1824,7 @@ void initServer(void) {
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
-    createSharedObjects();
+    createSharedObjects();// 为用到的常用值创建对象，作为共享对象
     adjustOpenFilesLimit();
     /* 初始化事件循环 */
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
