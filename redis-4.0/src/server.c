@@ -1802,6 +1802,7 @@ void initServer(void) {
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
+    // 设置进程信号处理器
     setupSignalHandlers();
 
     if (server.syslog_enabled) {
@@ -1836,12 +1837,12 @@ void initServer(void) {
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
-    /* Open the TCP listening socket for the user commands. */
+    /* 打开TCP监听套接字 */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
 
-    /* Open the listening Unix domain socket. */
+    /* 打开监听unix domain套接字 */
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
@@ -1853,13 +1854,13 @@ void initServer(void) {
         anetNonBlock(NULL,server.sofd);
     }
 
-    /* Abort if there are no listening sockets at all. */
+    /* 如果没有配置端口，退出 */
     if (server.ipfd_count == 0 && server.sofd < 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
 
-    /* Create the Redis databases, and initialize other internal state. */
+    /* 创建redis数据库，并初始化其他内部状态值 */
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
@@ -1869,7 +1870,7 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
     }
-    evictionPoolAlloc(); /* Initialize the LRU keys pool. */
+    evictionPoolAlloc(); /* 初始化LRU键池 */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
@@ -1903,7 +1904,7 @@ void initServer(void) {
     updateCachedTime();
 
     /*
-     * 创建定时器回调
+     * 创建时间事件定时器
      * 这是redis处理后台操作的方法，比如客户端超时，删除超时的key等等
      */
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
@@ -1935,7 +1936,7 @@ void initServer(void) {
                 "blocked clients subsystem.");
     }
 
-    /* Open the AOF file if needed. */
+    /* 如果开启了AOF，打开AOF文件 */
     if (server.aof_state == AOF_ON) {
         server.aof_fd = open(server.aof_filename,
                                O_WRONLY|O_APPEND|O_CREAT,0644);
@@ -1946,22 +1947,22 @@ void initServer(void) {
         }
     }
 
-    /* 32 bit instances are limited to 4GB of address space, so if there is
-     * no explicit limit in the user provided configuration we set a limit
-     * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
-     * useless crashes of the Redis instance for out of memory. */
+    /*
+     * 32位的服务器最大内存限制是4G
+     * 如果没有在配置文件明确指定，设置3G的内存限制
+     */
     if (server.arch_bits == 32 && server.maxmemory == 0) {
         serverLog(LL_WARNING,"Warning: 32 bit instance detected but no memory limit set. Setting 3 GB maxmemory limit with 'noeviction' policy now.");
         server.maxmemory = 3072LL*(1024*1024); /* 3 GB */
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
-    if (server.cluster_enabled) clusterInit();
+    if (server.cluster_enabled) clusterInit();// 初始化集群信息
     replicationScriptCacheInit();
     scriptingInit(1);
-    slowlogInit();
+    slowlogInit(); // 初始化慢查询日志模块
     latencyMonitorInit();
-    bioInit();
+    bioInit(); // 初始化后台IO模块
     server.initial_memory_usage = zmalloc_used_memory();
 }
 
