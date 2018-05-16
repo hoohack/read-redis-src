@@ -3687,6 +3687,10 @@ int redisIsSupervised(int mode) {
 }
 
 
+/*
+ * main
+ * server启动函数
+ */
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -3728,12 +3732,14 @@ int main(int argc, char **argv) {
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
-    server.sentinel_mode = checkForSentinelMode(argc,argv);
-    initServerConfig();
+    server.sentinel_mode = checkForSentinelMode(argc,argv); // 设置哨兵模式
+    initServerConfig(); // 初始化服务器状态
     moduleInitModulesSystem();
 
-    /* Store the executable path and arguments in a safe place in order
-     * to be able to restart the server later. */
+
+    /*
+     * 保存可执行的路径和参数，为了之后的服务器重启做准备
+     */
     server.executable = getAbsolutePath(argv[0]);
     server.exec_argv = zmalloc(sizeof(char*)*(argc+1));
     server.exec_argv[argc] = NULL;
@@ -3817,7 +3823,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         resetServerSaveParams();
-        loadServerConfig(configfile,options);
+        loadServerConfig(configfile,options); // 从配置文件加载配置
         sdsfree(options);
     }
 
@@ -3840,6 +3846,7 @@ int main(int argc, char **argv) {
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
+    // 初始化服务器
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
@@ -3875,8 +3882,10 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
 
+    // 设置beforeSleep和afterSleep
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
+    // 启动事件循环器，开始监听事件
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

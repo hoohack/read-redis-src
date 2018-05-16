@@ -98,8 +98,8 @@ typedef struct aeEventLoop {
     aeTimeEvent *timeEventHead;
     int stop;
     void *apidata; /* 用于保存轮询API指定数据 */
-    aeBeforeSleepProc *beforesleep;
-    aeBeforeSleepProc *aftersleep;
+    aeBeforeSleepProc *beforesleep; // 每次进入select/wait去等待监听事件前调用
+    aeBeforeSleepProc *aftersleep; // 每次执行完事件后调用
 } aeEventLoop;
 
 /* Prototypes */

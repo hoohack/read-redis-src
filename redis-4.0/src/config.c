@@ -169,6 +169,9 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     listAddNodeTail(server.loadmodule_queue,loadmod);
 }
 
+/*
+ * 从配置文件加载配置
+ */
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
@@ -184,24 +187,24 @@ void loadServerConfigFromString(char *config) {
         linenum = i+1;
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
-        /* Skip comments and blank lines */
+        /* 跳过注释和空行 */
         if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
 
-        /* Split into arguments */
+        /* 分割配置字符串到参数数组 */
         argv = sdssplitargs(lines[i],&argc);
         if (argv == NULL) {
             err = "Unbalanced quotes in configuration line";
             goto loaderr;
         }
 
-        /* Skip this line if the resulting command vector is empty. */
+        /* 如果参数为空，跳过 */
         if (argc == 0) {
             sdsfreesplitres(argv,argc);
             continue;
         }
         sdstolower(argv[0]);
 
-        /* Execute config directives */
+        /* 将配置项赋值给服务器结构体 */
         if (!strcasecmp(argv[0],"timeout") && argc == 2) {
             server.maxidletime = atoi(argv[1]);
             if (server.maxidletime < 0) {
