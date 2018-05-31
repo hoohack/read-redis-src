@@ -589,6 +589,10 @@ redisReader *redisReaderCreate(void) {
     return redisReaderCreateWithFunctions(&defaultFunctions);
 }
 
+/*
+ * 初始化Redis连接上下文
+ * 即初始化redisContext结构体的属性
+ */
 static redisContext *redisContextInit(void) {
     redisContext *c;
 
@@ -668,12 +672,13 @@ int redisReconnect(redisContext *c) {
     return REDIS_ERR;
 }
 
-/* Connect to a Redis instance. On error the field error in the returned
- * context will be set to the return value of the error function.
+/*
+ * 连接到redis实例，函数返回redisContext，如果出错了，错误信息会设置在redisContext的error属性
  * When no set of reply functions is given, the default set will be used. */
 redisContext *redisConnect(const char *ip, int port) {
     redisContext *c;
 
+    // 初始化连接
     c = redisContextInit();
     if (c == NULL)
         return NULL;

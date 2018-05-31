@@ -47,6 +47,9 @@
 #define REDIS_ERR_OOM 5 /* Out of memory */
 #define REDIS_ERR_OTHER 2 /* Everything else... */
 
+/*
+ * 回复类型定义
+ */
 #define REDIS_REPLY_STRING 1
 #define REDIS_REPLY_ARRAY 2
 #define REDIS_REPLY_INTEGER 3

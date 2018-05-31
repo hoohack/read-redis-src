@@ -3860,7 +3860,7 @@ int main(int argc, char **argv) {
         linuxMemoryWarnings();
     #endif
         moduleLoadFromQueue();
-        loadDataFromDisk();
+        loadDataFromDisk();// 使用RDB或者AOF文件还原数据库状态
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,

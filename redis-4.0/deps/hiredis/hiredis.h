@@ -108,14 +108,14 @@
 extern "C" {
 #endif
 
-/* This is the reply object returned by redisCommand() */
+/* redisCommand函数的回复对象 */
 typedef struct redisReply {
-    int type; /* REDIS_REPLY_* */
-    long long integer; /* The integer when type is REDIS_REPLY_INTEGER */
-    size_t len; /* Length of string */
-    char *str; /* Used for both REDIS_REPLY_ERROR and REDIS_REPLY_STRING */
-    size_t elements; /* number of elements, for REDIS_REPLY_ARRAY */
-    struct redisReply **element; /* elements vector for REDIS_REPLY_ARRAY */
+    int type; /* 类型，在read.h文件中定义：REDIS_REPLY_* */
+    long long integer; /* 当type为REDIS_REPLY_INTEGER时的整型值 */
+    size_t len; /* 字符串的长度 */
+    char *str; /* 在type为REDIS_REPLY_ERROR或者REDIS_REPLY_STRING使用 */
+    size_t elements; /* 当type为REDIS_REPLY_ARRAY时表示数组的数量 */
+    struct redisReply **element; /* 当type为REDIS_REPLY_ARRAY时保存元素的数组  */
 } redisReply;
 
 redisReader *redisReaderCreate(void);
@@ -136,10 +136,10 @@ enum redisConnectionType {
     REDIS_CONN_UNIX
 };
 
-/* Context for a connection to Redis */
+/* 代表一个Redis连接的上下文结构体 */
 typedef struct redisContext {
-    int err; /* Error flags, 0 when there is no error */
-    char errstr[128]; /* String representation of error when applicable */
+    int err; /* 错误标志，0位无错误 */
+    char errstr[128]; /* 错误信息字符串 */
     int fd;
     int flags;
     char *obuf; /* Write buffer */
@@ -152,11 +152,11 @@ typedef struct redisContext {
         char *host;
         char *source_addr;
         int port;
-    } tcp;
+    } tcp; // tcp 连接
 
     struct {
         char *path;
-    } unix_sock;
+    } unix_sock; // socket连接路径
 
 } redisContext;
 

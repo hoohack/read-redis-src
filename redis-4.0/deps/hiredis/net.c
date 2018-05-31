@@ -262,6 +262,12 @@ int redisContextSetTimeout(redisContext *c, const struct timeval tv) {
     return REDIS_OK;
 }
 
+/*
+ * 创建一个TCP连接:client连接到server
+ * 创建socket(socket)
+ * 绑定端口(bind)
+ * 连接(connect)
+ */
 static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
                                    const struct timeval *timeout,
                                    const char *source_addr) {
@@ -277,10 +283,8 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
     c->connection_type = REDIS_CONN_TCP;
     c->tcp.port = port;
 
-    /* We need to take possession of the passed parameters
-     * to make them reusable for a reconnect.
-     * We also carefully check we don't free data we already own,
-     * as in the case of the reconnect method.
+    /*
+     * 保存参数，重连时可以使用，如果地址不一样，那就释放，不重复使用
      *
      * This is a bit ugly, but atleast it works and doesn't leak memory.
      **/
@@ -304,6 +308,7 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
         c->timeout = NULL;
     }
 
+    // 超时处理
     if (redisContextTimeoutMsec(c, &timeout_msec) != REDIS_OK) {
         __redisSetError(c, REDIS_ERR_IO, "Invalid timeout specified");
         goto error;
@@ -317,12 +322,14 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
         c->tcp.source_addr = strdup(source_addr);
     }
 
+    // 设置客户端端口
     snprintf(_port, 6, "%d", port);
     memset(&hints,0,sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
-    /* Try with IPv6 if no IPv4 address was found. We do it in this order since
+    /* 如果IPV4地址没有设置，尝试用IPV6连接
+     * Try with IPv6 if no IPv4 address was found. We do it in this order since
      * in a Redis client you can't afford to test if you have IPv6 connectivity
      * as this would add latency to every connect. Otherwise a more sensible
      * route could be: Use IPv6 if both addresses are available and there is IPv6
@@ -336,6 +343,7 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
     }
     for (p = servinfo; p != NULL; p = p->ai_next) {
 addrretry:
+        // 创建套接字
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
 
@@ -374,6 +382,7 @@ addrretry:
                 goto error;
             }
         }
+        // 连接服务端
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
             if (errno == EHOSTUNREACH) {
                 redisContextCloseFd(c);
