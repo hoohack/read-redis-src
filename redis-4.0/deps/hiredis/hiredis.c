@@ -803,6 +803,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
+    // 读取服务器返回的数据
     nread = read(c->fd,buf,sizeof(buf));
     if (nread == -1) {
         if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
@@ -840,6 +841,7 @@ int redisBufferWrite(redisContext *c, int *done) {
         return REDIS_ERR;
 
     if (sdslen(c->obuf) > 0) {
+        // 发送请求数据给服务器
         nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
         if (nwritten == -1) {
             if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
@@ -871,6 +873,9 @@ int redisGetReplyFromReader(redisContext *c, void **reply) {
     return REDIS_OK;
 }
 
+/*
+ * 获取操作结果
+ */
 int redisGetReply(redisContext *c, void **reply) {
     int wdone = 0;
     void *aux = NULL;
@@ -883,12 +888,14 @@ int redisGetReply(redisContext *c, void **reply) {
     if (aux == NULL && c->flags & REDIS_BLOCK) {
         /* Write until done */
         do {
+            // 发送命令到服务端，底层是调用write，结果写到wdone
             if (redisBufferWrite(c,&wdone) == REDIS_ERR)
                 return REDIS_ERR;
         } while (!wdone);
 
         /* Read until there is a reply */
         do {
+            // 读取客户端返回，底层是调用read
             if (redisBufferRead(c) == REDIS_ERR)
                 return REDIS_ERR;
             if (redisGetReplyFromReader(c,&aux) == REDIS_ERR)
@@ -896,7 +903,7 @@ int redisGetReply(redisContext *c, void **reply) {
         } while (aux == NULL);
     }
 
-    /* Set reply object */
+    /* 把结果写到reply对象 */
     if (reply != NULL) *reply = aux;
     return REDIS_OK;
 }

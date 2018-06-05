@@ -516,11 +516,13 @@ static int cliConnect(int force) {
         }
 
         if (config.hostsocket == NULL) {
+            // 连接服务器
             context = redisConnect(config.hostip,config.hostport);
         } else {
             context = redisConnectUnix(config.hostsocket);
         }
 
+        // 处理错误
         if (context->err) {
             fprintf(stderr,"Could not connect to Redis at ");
             if (config.hostsocket == NULL)
@@ -536,9 +538,10 @@ static int cliConnect(int force) {
          * in order to prevent timeouts caused by the execution of long
          * commands. At the same time this improves the detection of real
          * errors. */
+        // 防止超时
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
-        /* Do AUTH and select the right DB. */
+        /* 验证以及选择DB */
         if (cliAuth() != REDIS_OK)
             return REDIS_ERR;
         if (cliSelect() != REDIS_OK)
@@ -750,12 +753,18 @@ static sds cliFormatReplyCSV(redisReply *r) {
     return out;
 }
 
+/*
+ * 读取服务端的返回
+ */
 static int cliReadReply(int output_raw_strings) {
     void *_reply;
     redisReply *reply;
     sds out = NULL;
     int output = 1;
 
+    /*
+     * redisGetReply 获取操作结果
+     */
     if (redisGetReply(context,&_reply) != REDIS_OK) {
         if (config.shutdown) {
             redisFree(context);
@@ -809,6 +818,7 @@ static int cliReadReply(int output_raw_strings) {
         cliRefreshPrompt();
     }
 
+    // 格式化输出结果，把结果输出到标准输出
     if (output) {
         if (output_raw_strings) {
             out = cliFormatReplyRaw(reply);
@@ -830,6 +840,9 @@ static int cliReadReply(int output_raw_strings) {
     return REDIS_OK;
 }
 
+/*
+ * 发送命令给服务器
+ */
 static int cliSendCommand(int argc, char **argv, int repeat) {
     char *command = argv[0];
     size_t *argvlen;
@@ -882,18 +895,19 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         }
     }
 
-    /* Actually activate LDB on EVAL if needed. */
+    /* EVAL */
     if (!strcasecmp(command,"eval") && config.enable_ldb_on_eval) {
         config.eval_ldb = 1;
         config.output = OUTPUT_RAW;
     }
 
-    /* Setup argument length */
+    /* 设置参数长度 */
     argvlen = zmalloc(argc*sizeof(size_t));
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
     while(repeat--) {
+        // 使用redis协议编码参数
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         while (config.monitor_mode) {
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
@@ -916,6 +930,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             return REDIS_ERR;  /* Error = slaveMode lost connection to master */
         }
 
+        // 发送命令，读取结果
         if (cliReadReply(output_raw) != REDIS_OK) {
             zfree(argvlen);
             return REDIS_ERR;
@@ -1182,20 +1197,24 @@ static char **convertToSds(int count, char** args) {
   return sds;
 }
 
+/*
+ * 触发命令执行
+ */
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
     while (1) {
         config.cluster_reissue_command = 0;
+        // 发送命令给服务器
         if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            // 请求失败，重连，再请求一次
             cliConnect(1);
 
-            /* If we still cannot send the command print error.
-             * We'll try to reconnect the next time. */
+            /* 如果重来还是失败，退出，下次再次请求 */
             if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
                 cliPrintContextError();
                 return REDIS_ERR;
             }
          }
-         /* Issue the command again if we got redirected in cluster mode */
+         /* 如果是集群模式，再次触发 */
          if (config.cluster_mode && config.cluster_reissue_command) {
             cliConnect(1);
          } else {
@@ -1271,6 +1290,9 @@ void cliLoadPreferences(void) {
     sdsfree(rcfile);
 }
 
+/*
+ * 交互模式核心函数
+ */
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -1300,6 +1322,7 @@ static void repl(void) {
     }
 
     cliRefreshPrompt();
+    // 开始读取用户的输入请求
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
             argv = cliSplitArgs(line,&argc);
@@ -1307,10 +1330,12 @@ static void repl(void) {
             if (historyfile) linenoiseHistorySave(historyfile);
 
             if (argv == NULL) {
+                // 无效参数
                 printf("Invalid argument(s)\n");
                 linenoiseFree(line);
                 continue;
             } else if (argc > 0) {
+                // 特殊命令处理 start
                 if (strcasecmp(argv[0],"quit") == 0 ||
                     strcasecmp(argv[0],"exit") == 0)
                 {
@@ -1334,11 +1359,14 @@ static void repl(void) {
                     cliConnect(1);
                 } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                     linenoiseClearScreen();
+                    // 特殊命令处理 end
                 } else {
+                    // redis普通命令处理
                     long long start_time = mstime(), elapsed;
                     int repeat, skipargs = 0;
                     char *endptr;
 
+                    // 解析第一个参数，获得重复次数
                     repeat = strtol(argv[0], &endptr, 10);
                     if (argc > 1 && *endptr == '\0' && repeat) {
                         skipargs = 1;
@@ -1346,6 +1374,7 @@ static void repl(void) {
                         repeat = 1;
                     }
 
+                    // 执行命令
                     issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
 
                     /* If our debugging session ended, show the EVAL final
@@ -2602,9 +2631,13 @@ static void intrinsicLatencyMode(void) {
  * Program main()
  *--------------------------------------------------------------------------- */
 
+/*
+ * redis-client主入口
+ */
 int main(int argc, char **argv) {
     int firstarg;
 
+    // 初始化config属性
     config.hostip = sdsnew("127.0.0.1");
     config.hostport = 6379;
     config.hostsocket = NULL;
@@ -2651,6 +2684,7 @@ int main(int argc, char **argv) {
         config.output = OUTPUT_STANDARD;
     config.mb_delim = sdsnew("\n");
 
+    // 解析启动参数
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
@@ -2667,7 +2701,7 @@ int main(int argc, char **argv) {
         latencyDistMode();
     }
 
-    /* Slave mode */
+    /* 从库模式 */
     if (config.slave_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         slaveMode();
@@ -2713,7 +2747,7 @@ int main(int argc, char **argv) {
     /* Intrinsic latency mode */
     if (config.intrinsic_latency_mode) intrinsicLatencyMode();
 
-    /* Start interactive mode when no command is provided */
+    /* 运行交互模式 */
     if (argc == 0 && !config.eval) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
