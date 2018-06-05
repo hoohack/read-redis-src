@@ -962,6 +962,10 @@ int redisAppendCommand(redisContext *c, const char *format, ...) {
     return ret;
 }
 
+/*
+ * 格式化命令
+ * 把命令添加到redisContext中
+ */
 int redisAppendCommandArgv(redisContext *c, int argc, const char **argv, const size_t *argvlen) {
     sds cmd;
     int len;
