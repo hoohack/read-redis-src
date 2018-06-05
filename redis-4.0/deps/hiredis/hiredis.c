@@ -468,11 +468,10 @@ int redisFormatCommand(char **target, const char *format, ...) {
     return len;
 }
 
-/* Format a command according to the Redis protocol using an sds string and
- * sdscatfmt for the processing of arguments. This function takes the
- * number of arguments, an array with arguments and an array with their
- * lengths. If the latter is set to NULL, strlen will be used to compute the
- * argument lengths.
+/*
+ * 使用Redis协议格式化命令，通过sds字符串保存，使用sdscatfmt函数追加
+ * 函数接收几个参数，参数数组以及参数长度数组
+ * 如果参数长度数组为NULL，参数长度会用strlen函数计算
  */
 int redisFormatSdsCommandArgv(sds *target, int argc, const char **argv,
                               const size_t *argvlen)
@@ -486,24 +485,24 @@ int redisFormatSdsCommandArgv(sds *target, int argc, const char **argv,
     if (target == NULL)
         return -1;
 
-    /* Calculate our total size */
+    /* 计算总大小 */
     totlen = 1+countDigits(argc)+2;
     for (j = 0; j < argc; j++) {
         len = argvlen ? argvlen[j] : strlen(argv[j]);
         totlen += bulklen(len);
     }
 
-    /* Use an SDS string for command construction */
+    /* 初始化一个sds字符串 */
     cmd = sdsempty();
     if (cmd == NULL)
         return -1;
 
-    /* We already know how much storage we need */
+    /* 使用前面计算得到的totlen分配空间 */
     cmd = sdsMakeRoomFor(cmd, totlen);
     if (cmd == NULL)
         return -1;
 
-    /* Construct command */
+    /* 构造命令字符串 */
     cmd = sdscatfmt(cmd, "*%i\r\n", argc);
     for (j=0; j < argc; j++) {
         len = argvlen ? argvlen[j] : strlen(argv[j]);
