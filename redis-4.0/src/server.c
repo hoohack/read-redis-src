@@ -1904,7 +1904,7 @@ void initServer(void) {
     updateCachedTime();
 
     /*
-     * 创建时间事件定时器
+     * 注册时间事件定时器
      * 这是redis处理后台操作的方法，比如客户端超时，删除超时的key等等
      */
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
@@ -1913,7 +1913,7 @@ void initServer(void) {
     }
 
     /*
-     * 创建文件事件句柄，接收新的请求
+     * 注册文件事件句柄，接收新的请求，新请求到来时调用acceptHandler函数
      */
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,

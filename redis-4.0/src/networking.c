@@ -67,6 +67,10 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
+/*
+ * 在运行中的服务器创建一个redisClient对象
+ * 并注册回调函数，当客户端有数据到来时触发
+ */
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
@@ -79,6 +83,7 @@ client *createClient(int fd) {
         anetEnableTcpNoDelay(NULL,fd);
         if (server.tcpkeepalive)
             anetKeepAlive(NULL,fd,server.tcpkeepalive);
+        // 注册readQueryFromClient回调函数
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
@@ -135,7 +140,7 @@ client *createClient(int fd) {
     c->peerid = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (fd != -1) listAddNodeTail(server.clients,c);
+    if (fd != -1) listAddNodeTail(server.clients,c); // 添加成功创建的客户端对象到服务器
     initClientMultiState(c);
     return c;
 }
@@ -604,6 +609,7 @@ int clientHasPendingReplies(client *c) {
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
+    // 创建一个客户端
     if ((c = createClient(fd)) == NULL) {
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
@@ -672,6 +678,9 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
     c->flags |= flags;
 }
 
+/*
+ * 接收新请求
+ */
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
@@ -688,6 +697,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        // 处理命令
         acceptCommonHandler(cfd,0,cip);
     }
 }
