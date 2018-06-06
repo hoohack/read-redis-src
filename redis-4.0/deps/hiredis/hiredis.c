@@ -503,12 +503,12 @@ int redisFormatSdsCommandArgv(sds *target, int argc, const char **argv,
         return -1;
 
     /* 构造命令字符串 */
-    cmd = sdscatfmt(cmd, "*%i\r\n", argc);
+    cmd = sdscatfmt(cmd, "*%i\r\n", argc); // *%i 表示包含命令在内，共有多少个参数
     for (j=0; j < argc; j++) {
         len = argvlen ? argvlen[j] : strlen(argv[j]);
-        cmd = sdscatfmt(cmd, "$%u\r\n", len);
-        cmd = sdscatlen(cmd, argv[j], len);
-        cmd = sdscatlen(cmd, "\r\n", sizeof("\r\n")-1);
+        cmd = sdscatfmt(cmd, "$%u\r\n", len); // $%u 表示该参数的长度
+        cmd = sdscatlen(cmd, argv[j], len); // 参数的值
+        cmd = sdscatlen(cmd, "\r\n", sizeof("\r\n")-1); // 最后加上\r\n
     }
 
     assert(sdslen(cmd)==totlen);
