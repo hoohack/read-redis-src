@@ -1059,10 +1059,10 @@ int processInlineBuffer(client *c) {
     sds *argv, aux;
     size_t querylen;
 
-    /* Search for end of line */
+    /* 查找\n第一次出现的位置 */
     newline = strchr(c->querybuf,'\n');
 
-    /* Nothing to do without a \r\n */
+    /* 如果没有\r\n，什么都不做 */
     if (newline == NULL) {
         if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
             addReplyError(c,"Protocol error: too big inline request");
@@ -1071,11 +1071,11 @@ int processInlineBuffer(client *c) {
         return C_ERR;
     }
 
-    /* Handle the \r\n case. */
+    /* 处理\r\n */
     if (newline && newline != c->querybuf && *(newline-1) == '\r')
         newline--;
 
-    /* Split the input buffer up to the \r\n */
+    /* 使用\r\n分割请求内容 */
     querylen = newline-(c->querybuf);
     aux = sdsnewlen(c->querybuf,querylen);
     argv = sdssplitargs(aux,&argc);
@@ -1086,22 +1086,23 @@ int processInlineBuffer(client *c) {
         return C_ERR;
     }
 
-    /* Newline from slaves can be used to refresh the last ACK time.
-     * This is useful for a slave to ping back while loading a big
-     * RDB file. */
+    /*
+     * 如果客户端时从库，更新最新的ACK时间
+     * 在从库加载大的RDB文件时很有帮助
+     */
     if (querylen == 0 && c->flags & CLIENT_SLAVE)
         c->repl_ack_time = server.unixtime;
 
-    /* Leave data after the first line of the query in the buffer */
+    /* 取第一行后的数据保存到buffer */
     sdsrange(c->querybuf,querylen+2,-1);
 
-    /* Setup argv array on client structure */
+    /* 把参数数组添加到客户端结构体 */
     if (argc) {
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*argc);
     }
 
-    /* Create redis objects for all arguments. */
+    /* 为所有参数创建redis对象 */
     for (c->argc = 0, j = 0; j < argc; j++) {
         if (sdslen(argv[j])) {
             c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
@@ -1297,25 +1298,28 @@ int processMultibulkBuffer(client *c) {
 /* This function is called every time, in the client structure 'c', there is
  * more query buffer to process, because we read more data from the socket
  * or because a client was blocked and later reactivated, so there could be
- * pending query buffer, already representing a full command, to process. */
+ * pending query buffer, already representing a full command, to process.
+ * 当有querybuf到来时函数被调用：从客户端读取数据或者客户端阻塞后恢复
+ * 因此可能是在等待新请求到来
+ */
 void processInputBuffer(client *c) {
     server.current_client = c;
-    /* Keep processing while there is something in the input buffer */
+    /* 如果querybuf不为空，一直处理 */
     while(sdslen(c->querybuf)) {
-        /* Return if clients are paused. */
+        /* 如果客户端停止了，退出 */
         if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
 
-        /* Immediately abort if the client is in the middle of something. */
+        /* 如果客户端阻塞，返回 */
         if (c->flags & CLIENT_BLOCKED) break;
 
-        /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
-         * written to the client. Make sure to not let the reply grow after
-         * this flag has been set (i.e. don't process more commands).
-         *
-         * The same applies for clients we want to terminate ASAP. */
+        /*
+         * CLIENT_CLOSE_AFTER_REPLY 表示回复之后马上关闭客户端连接
+         * 设置了这个标志后，确保不会继续添加回复（即不再处理命令）
+         * 如果设置了CLIENT_CLOSE_ASAP，表示客户端需要马上关闭，也退出
+         */
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
-        /* Determine request type when unknown. */
+        /* 设置请求类型：批量/单个 */
         if (!c->reqtype) {
             if (c->querybuf[0] == '*') {
                 c->reqtype = PROTO_REQ_MULTIBULK;
@@ -1324,6 +1328,7 @@ void processInputBuffer(client *c) {
             }
         }
 
+        // 解析参数
         if (c->reqtype == PROTO_REQ_INLINE) {
             if (processInlineBuffer(c) != C_OK) break;
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
@@ -1336,7 +1341,7 @@ void processInputBuffer(client *c) {
         if (c->argc == 0) {
             resetClient(c);
         } else {
-            /* Only reset the client when the command was executed. */
+            /* 处理命令，仅当命令被成功执行后才重置客户端 */
             if (processCommand(c) == C_OK) {
                 if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
                     /* Update the applied replication offset of our master. */
@@ -1383,8 +1388,8 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-    nread = read(fd, c->querybuf+qblen, readlen);
+    c->querybuf = sdsMakeRoomFor(c->querybuf, readlen); // 创建SDS字符串保存客户端的请求
+    nread = read(fd, c->querybuf+qblen, readlen); // 读取请求内容
     if (nread == -1) {
         if (errno == EAGAIN) {
             return;
@@ -1406,7 +1411,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     sdsIncrLen(c->querybuf,nread);
-    c->lastinteraction = server.unixtime;
+    c->lastinteraction = server.unixtime; // 记录最近的一次交互
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     server.stat_net_input_bytes += nread;
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
@@ -1426,7 +1431,10 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
      * was actually applied to the master state: this quantity, and its
      * corresponding part of the replication stream, will be propagated to
      * the sub-slaves and to the replication backlog. */
-    if (!(c->flags & CLIENT_MASTER)) {
+    /*
+     * 处理请求
+     */
+    if (!(c->flags & CLIENT_MASTER)) {k
         processInputBuffer(c);
     } else {
         size_t prev_offset = c->reploff;

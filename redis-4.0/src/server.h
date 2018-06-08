@@ -1222,10 +1222,11 @@ typedef struct pubsubPattern {
 
 typedef void redisCommandProc(client *c);
 typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+// redis命令结构体定义
 struct redisCommand {
-    char *name;
-    redisCommandProc *proc;
-    int arity;
+    char *name; // 名称
+    redisCommandProc *proc; // 执行函数
+    int arity; // 命令元数（包含命令名称在内，一共多少个参数）
     char *sflags; /* Flags as string representation, one char per flag. */
     int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.

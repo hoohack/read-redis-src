@@ -1506,7 +1506,7 @@ void initServerConfig(void) {
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
-    populateCommandTable();
+    populateCommandTable(); // 加载命令表
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
     server.lpushCommand = lookupCommandByCString("lpush");
@@ -2215,7 +2215,7 @@ void call(client *c, int flags) {
     redisOpArray prev_also_propagate = server.also_propagate;
     redisOpArrayInit(&server.also_propagate);
 
-    /* Call the command. */
+    /* 调用命令执行函数 */
     dirty = server.dirty;
     start = ustime();
     c->cmd->proc(c);
@@ -2238,8 +2238,7 @@ void call(client *c, int flags) {
             server.lua_caller->flags |= CLIENT_FORCE_AOF;
     }
 
-    /* Log the command into the Slow log if needed, and populate the
-     * per-command statistics that we show in INFO commandstats. */
+    /* 如果命令执行较慢，记录慢查询 */
     if (flags & CMD_CALL_SLOWLOG && c->cmd->proc != execCommand) {
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
@@ -2251,7 +2250,7 @@ void call(client *c, int flags) {
         c->lastcmd->calls++;
     }
 
-    /* Propagate the command into the AOF and replication link */
+    /* 把命令发布到AOF文件及从库 */
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
     {
@@ -2316,6 +2315,9 @@ void call(client *c, int flags) {
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
  * server for a bulk read from the client.
+ * 当这个函数被调用时，意味着整一个命令的所有内容都被解析完毕，
+ * 参数已经保存到客户端的argv/argc属性了
+ * processCommand函数执行解析到的命令或准备
  *
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
@@ -2331,8 +2333,10 @@ int processCommand(client *c) {
         return C_ERR;
     }
 
-    /* Now lookup the command and check ASAP about trivial error conditions
-     * such as wrong arity, bad command name and so forth. */
+    /*
+     * 访问redis的命令表，查找命令
+     * 然后检查参数是否错误
+     */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         flagTransaction(c);
@@ -2347,13 +2351,15 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Check if the user is authenticated */
+    /* 检查是否授权 */
     if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
     {
         flagTransaction(c);
         addReply(c,shared.noautherr);
         return C_OK;
     }
+
+    /* **** 一系列检查 start **** */
 
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
@@ -2490,14 +2496,18 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Exec the command */
+    /* **** 一系列检查 end **** */
+
+    /* 执行命令 */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
     {
+        // 在multi下 执行队列里面的命令
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
+        // 执行单个命令
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
