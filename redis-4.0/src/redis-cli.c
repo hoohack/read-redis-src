@@ -930,7 +930,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             return REDIS_ERR;  /* Error = slaveMode lost connection to master */
         }
 
-        // 发送命令，读取结果
+        // redisGetReply，读取结果
         if (cliReadReply(output_raw) != REDIS_OK) {
             zfree(argvlen);
             return REDIS_ERR;

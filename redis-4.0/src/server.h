@@ -617,7 +617,7 @@ struct evictionPoolEntry; /* Defined in evict.c */
  */
 typedef struct redisDb {
     dict *dict;                 /* 数据库的键空间，保存数据库中的所有键值对 */
-    dict *expires;              /* 保存所有键的过期时间 */
+    dict *expires;              /* 保存所有过期的键值对 */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
