@@ -15,3 +15,9 @@
 [［Redis源码阅读］当你输入get/set命令的时候，redis做了什么](http://www.hoohack.me/2018/06/21/implement-redis-command-nonzerodecr)
 
 [［Redis源码阅读］实现一个redis命令--nonzerodecr](http://www.hoohack.me/2018/06/21/implement-redis-command-nonzerodecr)
+
+[［深入理解Redis］读取RDB文件](https://www.hoohack.me/2018/08/27/rdb-tools-read-binary-file)
+
+[理解Redis的内存回收机制](https://www.hoohack.me/2019/06/24/redis-expire-strategy)
+
+[你附近的人都有谁，这个功能是怎么实现的？](https://www.hoohack.me/2020/09/19/using-redis-geo-find-nearby)
